@@ -1,0 +1,30 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v="clr-namespace:System;assembly=mscorlib">
+    <v:String x:Key="AutoinstallUpdates">Автоустановка обновлений</v:String>
+    <v:String x:Key="CheckUpdatesOnStart">Проверять обновления при запуске</v:String>
+    <v:String x:Key="ClearHotKey">Очистить</v:String>
+    <v:String x:Key="Common">Общие</v:String>
+    <v:String x:Key="Disable">Выключить</v:String>
+    <v:String x:Key="Enable">Включить</v:String>
+    <v:String x:Key="English">Английский</v:String>
+    <v:String x:Key="Exit">Выход</v:String>
+    <v:String x:Key="HideOnClose">Скрывать окно при закрытии</v:String>
+    <v:String x:Key="HotKeys">Горячие клавиши</v:String>
+    <v:String x:Key="InstallOnlyMinorVersions">Устанавливать только минорные версии</v:String>
+    <v:String x:Key="Language">Язык</v:String>
+    <v:String x:Key="LoadOnSystemStart">Загружать при старте системы</v:String>
+    <v:String x:Key="Logs">Логи</v:String>
+    <v:String x:Key="Module">Модуль</v:String>
+    <v:String x:Key="Modules">Модули</v:String>
+    <v:String x:Key="Off">Выкл.</v:String>
+    <v:String x:Key="On">Вкл.</v:String>
+    <v:String x:Key="Russian">Русский</v:String>
+    <v:String x:Key="SetHotKey">Установить</v:String>
+    <v:String x:Key="Settings">Настройки</v:String>
+    <v:String x:Key="State">Статус</v:String>
+    <v:String x:Key="Updates">Обновления</v:String>
+    <v:String x:Key="UpdatesRepositoryAddress">Адрес репозитория обновлений</v:String>
+    
+    <v:String x:Key="PressAnyKeyOrEscapeForCancel">Нажмите клавишу или Escape для отмены</v:String>
+</ResourceDictionary>

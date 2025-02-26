@@ -1,0 +1,30 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:v="clr-namespace:System;assembly=mscorlib">
+    <v:String x:Key="AutoinstallUpdates">Auto install updates</v:String>
+    <v:String x:Key="CheckUpdatesOnStart">Check updates on start</v:String>
+    <v:String x:Key="ClearHotKey">Clear</v:String>
+    <v:String x:Key="Common">Common</v:String>
+    <v:String x:Key="Disable">Disable</v:String>
+    <v:String x:Key="Enable">Enable</v:String>
+    <v:String x:Key="English">English</v:String>
+    <v:String x:Key="Exit">Exit</v:String>
+    <v:String x:Key="HideOnClose">Hide window on close</v:String>
+    <v:String x:Key="HotKeys">HotKeys</v:String>
+    <v:String x:Key="InstallOnlyMinorVersions">Install only minor versions</v:String>
+    <v:String x:Key="Language">Language</v:String>
+    <v:String x:Key="LoadOnSystemStart">Load on system start</v:String>
+    <v:String x:Key="Logs">Logs</v:String>
+    <v:String x:Key="Module">Module</v:String>
+    <v:String x:Key="Modules">Modules</v:String>
+    <v:String x:Key="Off">Off</v:String>
+    <v:String x:Key="On">On</v:String>
+    <v:String x:Key="Russian">Russian</v:String>
+    <v:String x:Key="SetHotKey">Set</v:String>
+    <v:String x:Key="Settings">Settings</v:String>
+    <v:String x:Key="State">State</v:String>
+    <v:String x:Key="Updates">Updates</v:String>
+    <v:String x:Key="UpdatesRepositoryAddress">Updates repository address</v:String>
+
+    <v:String x:Key="PressAnyKeyOrEscapeForCancel">Press a key or Escape for cancel</v:String>
+</ResourceDictionary>
