@@ -25,7 +25,6 @@ using System.Windows.Navigation;
 using System.Windows.Shapes;
 using YamlDotNet.Serialization;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Tab;
-using Module = OutfitTool.ModuleManager.Module;
 using System.Management;
 using System.Timers;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.TreeView;
@@ -36,8 +35,10 @@ using System.Runtime.CompilerServices;
 using Hardcodet.Wpf.TaskbarNotification;
 using System.Collections.ObjectModel;
 using OutfitTool.View;
+using static OutfitTool.Services.Updates.UpdatesManager;
+using Module = OutfitTool.ModuleManager.Module;
 
-namespace OutfitTool
+namespace OutfitTool.View
 {
     public partial class MainWindow : Window
     {
@@ -47,11 +48,6 @@ namespace OutfitTool
         private static readonly DispatcherTimer iconTimer = new();
 
         LoggerInterface logger;
-        SettingsManager<AppSettings> settingsManager;
-        StartupManager startupManager;
-        UpdatesManager updatesManager;
-        HotKeyManager hotKeyManager;
-        ModuleManagerInterface moduleManager;
 
         public MainWindow()
         {
@@ -60,14 +56,9 @@ namespace OutfitTool
 
             LocalizationHelper.LanguageChanged += LanguageChanged;
 
-            settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            startupManager = ServiceLocator.GetService<StartupManager>();
-            updatesManager = ServiceLocator.GetService<UpdatesManager>();
-            moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
-            hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
-
             initLogger();
             initIconTimer();
+            initModules();
         }
 
         private void initLogger()
@@ -83,46 +74,11 @@ namespace OutfitTool
             iconTimer.Tick += OnModulesTimedEvent;
             iconTimer.Start();
         }
-
-
-        private void LanguageChanged(Object? sender, EventArgs e)
+        private void initModules()
         {
-            initInterface();
-        }
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
 
-        private void Window_Loaded(object sender, RoutedEventArgs e)
-        {
-            initModules();
-            hotKeyManager.init(new WindowInteropHelper(this).Handle);
-            initInterface();
-            updateSettingsCheckBoxes();
-
-            var settings = settingsManager.LoadSettings();
-            settingsManager.SaveSettings(settings);
-            LocalizationHelper.Language = new CultureInfo(settings.language);
-
-            var source = PresentationSource.FromVisual(this) as HwndSource;
-            source?.AddHook(WndProc);
-
-            if (settings.checkUpdatesOnStart == true && updatesManager != null)
-            {
-                updatesManager.LoadList(fillUpdatesList);
-
-            }
-        }
-
-        private void fillUpdatesList(List<RepositoryItem> repositoryItems)
-        {
-            RepositoryStatus.Text = "";
-            foreach (var updates in repositoryItems)
-            {
-                RepositoryStatus.Text += updates.ToString() + "\r\n";
-            }
-        }
-
-
-        private void initModules() 
-        {
             // Инициализация модулей
             var settings = settingsManager.LoadSettings();
             moduleManager.LoadModules(settings.enabledModules);
@@ -135,8 +91,45 @@ namespace OutfitTool
             }
         }
 
+
+        private void LanguageChanged(Object? sender, EventArgs e)
+        {
+            initInterface();
+        }
+
+        private void Window_Loaded(object sender, RoutedEventArgs e)
+        {
+            var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+            var updatesManager = ServiceLocator.GetService<UpdatesManager>();
+
+            hotKeyManager.init(new WindowInteropHelper(this).Handle);
+            initInterface();
+            
+
+            var settings = settingsManager.LoadSettings();
+            settingsManager.SaveSettings(settings);
+            LocalizationHelper.Language = new CultureInfo(settings.language);
+
+            var source = PresentationSource.FromVisual(this) as HwndSource;
+            source?.AddHook(WndProc);
+
+            if (settings.checkUpdatesOnStart == true && updatesManager != null)
+            {
+                updatesManager.LoadList();
+
+            }
+        }
+
+
+
+
+
         private void initInterface()
         {
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+
             TaskbarIcon.Visibility = Visibility.Visible;
 
             var modules = moduleManager.getModules();
@@ -174,52 +167,8 @@ namespace OutfitTool
             TrayContextMenu.Items.Add(laguageItem);
             TrayContextMenu.Items.Add(getTrayMenuItem(LocalizationHelper.getString("Exit"), "navigate_cross.png", Exit_Click));
 
-
-            // Инициализация полного списка модулей
-            var lvModuleItems = new ObservableCollection<ListViewModuleItem>();
-            foreach (Module module in modules)
-            {
-                lvModuleItems.Add(new ListViewModuleItem(module));
-            }
-            ListViewModuleItem? selectedModule = null;
-            if (moduleList.SelectedItem is ListViewModuleItem s)
-            {
-                selectedModule = s;
-            }
-            moduleList.ItemsSource = lvModuleItems;
-            if (selectedModule != null)
-            {
-                foreach (ListViewModuleItem m in moduleList.Items)
-                {
-                    if (m.name == selectedModule.name)
-                    {
-                        moduleList.SelectedItem = m;
-                        break;
-                    }
-                }
-            }
-
-
-            // Инициализация списка команд и горячих клавиш
-            // В списке должны быть все команды всех включенных модулей и горячие клавиши из настроек
-            List<ListViewCommandItem> list = new List<ListViewCommandItem>();
-            foreach (Module module in modules)
-            {
-                if (module.enabled)
-                {
-                    foreach (CommandInterface command in module.moduleController.getCommandList())
-                    {
-                        HotKey? key = hotKeyManager.getKey(new CommandDescriptor(module, command));
-                        list.Add(new ListViewCommandItem(command, module, key != null ? key.ToString() : ""));
-                    }
-                }
-            }
-            moduleCommandList.ItemsSource = list;
-
-            CollectionView view = (CollectionView)CollectionViewSource.GetDefaultView(moduleCommandList.ItemsSource);
-            PropertyGroupDescription groupDescription = new PropertyGroupDescription("module.moduleInfo.Name");
-            view.GroupDescriptions.Add(groupDescription);
         }
+
 
 
 
@@ -257,6 +206,8 @@ namespace OutfitTool
 
         private void ChangeLanguage(object sender, RoutedEventArgs e)
         {
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+
             if (sender is MenuItem clickedItem && clickedItem.Tag is string language)
             {
                 var settings = settingsManager.LoadSettings();
@@ -322,89 +273,32 @@ namespace OutfitTool
             }
         }
 
-        private void moduleList_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+
+
+
+
+
+
+        private void applySettings()
         {
-            if (moduleList.SelectedItem is ListViewModuleItem selectedModule)
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+            var startupManager = ServiceLocator.GetService<StartupManager>();
+
+            var settings = settingsManager.LoadSettings();
+            if (settings.loadOnSystemStart)
             {
-                setButtons(selectedModule.module);
+                startupManager.AddToStartup();
             }
             else
             {
-                switchModule.IsEnabled = false;
-                moduleSettings.IsEnabled = false;
+                startupManager.RemoveFromStartup();
             }
-        }
-
-        private void setButtons(Module module)
-        {
-            switchModule.IsEnabled = true;
-            moduleSettings.IsEnabled = true;
-
-            if (module.enabled)
-            {
-                switchModule.Content = LocalizationHelper.getString("Disable");
-            }
-            else
-            {
-                switchModule.Content = LocalizationHelper.getString("Enable");
-            }
-        }
-
-        private void switchModule_Click_1(object sender, RoutedEventArgs e)
-        {
-            if (moduleList.SelectedItem is ListViewModuleItem selectedModule)
-            {
-                selectedModule.module.enabled = !selectedModule.module.enabled;
-
-                var settings = settingsManager.LoadSettings();
-
-                if (selectedModule.module.enabled){
-                    settings.enabledModules.Add(selectedModule.module.assemblyName);
-                } else
-                {
-                    settings.enabledModules.Remove(selectedModule.module.assemblyName);
-                }
-                settingsManager.SaveSettings(settings);
-                
-                initModules();
-                initInterface();
-            }
-        }
-
-        private void Input_SettingsChanged(object sender, RoutedEventArgs e)
-        {
-            var settings = settingsManager.LoadSettings();
-            settings.minimizeOnClose = minimizeOnClose.IsChecked ?? false;
-            settings.loadOnSystemStart = loadOnSystemStart.IsChecked ?? false;
-            settings.checkUpdatesOnStart = checkUpdatesOnStart.IsChecked ?? false;
-            settings.installUpdates = installUpdates.IsChecked ?? false;
-            settings.installOnlyMinorUpdates = installOnlyMinorUpdates.IsChecked ?? false;
-            settings.updatesRepository = updatesRepository.Text;
-            settingsManager.SaveSettings(settings);
-            applySettings();
-        }
-
-        private void updateSettingsCheckBoxes()
-        {
-            var settings = settingsManager.LoadSettings();
-            minimizeOnClose.IsChecked = settings.minimizeOnClose;
-            loadOnSystemStart.IsChecked = settings.loadOnSystemStart;
-            checkUpdatesOnStart.IsChecked = settings.checkUpdatesOnStart;
-            installUpdates.IsChecked = settings.installUpdates;
-            installOnlyMinorUpdates.IsChecked = settings.installOnlyMinorUpdates;
-            updatesRepository.Text = settings.updatesRepository;
-            defaultUpdatesRepository.Content = settings.defaultUpdatesRepository;
-            applySettings();
-        }
-
-        private void DefaultRepository_MouseUp(object sender, MouseButtonEventArgs e)
-        {
-            var settings = settingsManager.LoadSettings();
-            updatesRepository.Text = settings.defaultUpdatesRepository;    
         }
 
         protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
         {
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+
             var settings = settingsManager.LoadSettings();
             if (settings.minimizeOnClose)
             {
@@ -413,61 +307,10 @@ namespace OutfitTool
             }
         }
 
-        private void applySettings()
-        {
-            var settings = settingsManager.LoadSettings();
-            if (settings.loadOnSystemStart) {
-                startupManager.AddToStartup();
-            } else {
-                startupManager.RemoveFromStartup();
-            }
-        }
-
-        private void resetHotkey_Click(object sender, RoutedEventArgs e)
-        {
-            ListViewCommandItem? lvi = this.moduleCommandList.SelectedItem as ListViewCommandItem;
-            if (lvi != null)
-            {
-                CommandDescriptor descriptor = new CommandDescriptor(lvi.module, lvi.command);
-                hotKeyManager.clearKey(descriptor);
-                lvi.hotKey = "";
-                var list = moduleCommandList.ItemsSource;
-                moduleCommandList.ItemsSource = null;
-                moduleCommandList.ItemsSource = list;
-
-                this.moduleCommandList.SelectedItem = lvi;
-            }
-        }
-
-        private void setHotkey_Click(object sender, RoutedEventArgs e)
-        {
-            ListViewCommandItem? lvi = this.moduleCommandList.SelectedItem as ListViewCommandItem;
-            if (lvi != null)
-            {
-                // Открываем окошко выбора клавиши
-                SetHotKey setHotKey = new SetHotKey(lvi.module.moduleInfo.Name, lvi.command.Name, lvi.command.Description);
-                if (setHotKey.ShowDialog() == true)
-                {
-                    HotKey key = setHotKey.getPressedKey();
-
-                    CommandDescriptor descriptor = new CommandDescriptor(lvi.module, lvi.command);
-
-                    hotKeyManager.registerKey(descriptor, key);
-
-                    lvi.hotKey = key.ToString();
-
-                    var list = moduleCommandList.ItemsSource;
-                    moduleCommandList.ItemsSource = null;
-                    moduleCommandList.ItemsSource = list;
-
-                    this.moduleCommandList.SelectedItem = lvi;
-
-                }
-            }
-        }
-
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
+
             if (msg == WM_HOTKEY) 
             {
                 hotKeyManager.hotKeyPressed(wParam.ToInt32());
@@ -477,12 +320,16 @@ namespace OutfitTool
 
         private void Window_Closed(object sender, EventArgs e)
         {
+            var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+
             var settings = settingsManager.LoadSettings();
             if (!settings.minimizeOnClose)
             {
                 var source = PresentationSource.FromVisual(this) as HwndSource;
                 source?.RemoveHook(WndProc);
-                var modules = this.moduleManager.getModules();
+                var modules = moduleManager.getModules();
                 foreach (Module module in modules)
                 {
                     if (module.enabled)
@@ -507,7 +354,9 @@ namespace OutfitTool
         private Notification? lastNotification = null;
         private void checkNotifications()
         {
-            var modules = this.moduleManager.getModules();
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+
+            var modules = moduleManager.getModules();
             foreach (Module module in modules)
             {
                 if (module.enabled)
@@ -533,6 +382,8 @@ namespace OutfitTool
 
         private ImageSource getTaskbarIcon()
         {
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+
             ImageSource icon = new BitmapImage(new Uri("pack://application:,,,/Resources/wrench.ico"));
             if (currentIconIndex != -1)
             {
@@ -571,9 +422,11 @@ namespace OutfitTool
 
         private string getTaskbarIconText()
         {
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+
             string text = "Outfit Tool";
 
-            var modules = this.moduleManager.getModules();
+            var modules = moduleManager.getModules();
             foreach (Module module in modules)
             {
                 if (module.enabled)
@@ -588,12 +441,5 @@ namespace OutfitTool
             return text;
         }
 
-        private void moduleSettings_Click(object sender, RoutedEventArgs e)
-        {
-            if (moduleList.SelectedItem is ListViewModuleItem selectedModule)
-            {
-                selectedModule.module.moduleController.openSettings();
-            }
-        }
     }
 }

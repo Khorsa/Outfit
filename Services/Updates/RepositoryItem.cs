@@ -9,12 +9,13 @@ namespace OutfitTool.Services.Updates
     internal class RepositoryItem
     {
         public string Name = "";
-        public int MajorVersion = 1;
-        public int MinorVersion = 0;
+        public Version Version = new Version(0, 0);
+        public string Changes = "";
+        public Version Require = new Version(0, 0);
 
         public override string ToString()
         {
-            return Name + " " + MajorVersion + "." + MinorVersion;
+            return Name + " " + Version.ToString();
         }
     }
 }

@@ -13,16 +13,18 @@ namespace OutfitTool.Services.Updates
 {
     class UpdatesManager
     {
-        public delegate void OnUpdatesListChanged(List<RepositoryItem> repositoryItems);
+        public delegate void OnUpdateManagerStatusChanged(bool Busy, RepositoryCollection? repositoryItems);
+
+        public bool Busy = false;
 
         private readonly HttpClient _httpClient;
         private CancellationTokenSource? _cancellationTokenSource = null;
-        public List<RepositoryItem> RepositoryItems = new List<RepositoryItem>();
+        public RepositoryCollection repositoryItems = new RepositoryCollection();
         LoggerInterface logger;
         SettingsManager<AppSettings> settingsManager;
         public event EventHandler? StatusChanged;
         private readonly Dispatcher _dispatcher;
-        private OnUpdatesListChanged? updatesListChangedEvent = null;
+        public OnUpdateManagerStatusChanged? updateManagerStatusChanged = null;
 
         private string UpdatesStatus { set{
                 if (_dispatcher != null){
@@ -40,9 +42,11 @@ namespace OutfitTool.Services.Updates
             _dispatcher = Dispatcher.CurrentDispatcher;
         }
 
-        public void LoadList(OnUpdatesListChanged? eventOnChangedList = null)
+        public void LoadList()
         {
-            this.updatesListChangedEvent = eventOnChangedList;
+            this.Busy = true;
+            this.updateManagerStatusChanged(Busy, null);
+
             UpdatesStatus = "Чтение списка обновлений...";
             _cancellationTokenSource = new CancellationTokenSource();
             Task.Run(() => CheckForUpdates(_cancellationTokenSource.Token));
@@ -53,27 +57,34 @@ namespace OutfitTool.Services.Updates
             try
             {
                 var settings = settingsManager.LoadSettings();
-                string moduleListUrl = trimSlashes(settings.updatesRepository) + "/list.php";
-                var response = await _httpClient.GetAsync(moduleListUrl, cancellationToken);
+                var response = await _httpClient.GetAsync(settings.updatesRepository, cancellationToken);
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadAsStringAsync(cancellationToken);
 
-                RepositoryItems = ParseUpdateList(content);
+                repositoryItems = ParseUpdateList(content);
+
                 UpdatesStatus = "Прочитан список модулей из репозитория";
 
-                if (this.updatesListChangedEvent != null && _dispatcher != null)
+                if (this.updateManagerStatusChanged != null && _dispatcher != null)
                 {
-                    _dispatcher.Invoke(() => { this.updatesListChangedEvent(RepositoryItems); });
+                    _dispatcher.Invoke(() => {
+                        this.Busy = false;
+                        this.updateManagerStatusChanged(Busy, repositoryItems); 
+                    });
                 }
             }
             catch (OperationCanceledException)
             {
+                this.Busy = false;
                 UpdatesStatus = "Проверка обновлений отменена";
+                this.updateManagerStatusChanged(Busy, null);
             }
             catch (Exception ex)
             {
+                this.Busy = false;
                 UpdatesStatus = $"Ошибка при проверке обновлений: {ex.Message}";
+                this.updateManagerStatusChanged(Busy, null);
             }
         }
 
@@ -81,23 +92,61 @@ namespace OutfitTool.Services.Updates
         {
             _cancellationTokenSource?.Cancel();
             UpdatesStatus = "Проверка обновлений отменена пользователем";
+            Busy = false;
+            this.updateManagerStatusChanged(Busy, null);
         }
 
-        private List<RepositoryItem> ParseUpdateList(string yamlContent)
+        private RepositoryCollection ParseUpdateList(string yamlContent)
         {
             var deserializer = new DeserializerBuilder().Build();
             Dictionary<object, object> result = deserializer.Deserialize<dynamic>(yamlContent);
-            Dictionary<object, object> modules = result["Modules"] as Dictionary<object, object>;
-            var RepositoryItems = new List<RepositoryItem>();
+            Dictionary<object, object> modules = result as Dictionary<object, object>;
+            var RepositoryItems = new RepositoryCollection();
 
             foreach (KeyValuePair<object, object> entry in modules)
             {
-                RepositoryItem item = new RepositoryItem();
-                item.Name = entry.Key.ToString();
-                string version = entry.Value.ToString();
-                item.MajorVersion = int.Parse(version[(version.IndexOf('.') + 1)..]);
-                item.MinorVersion = int.Parse(version[..version.IndexOf(".")]);
-                RepositoryItems.Add(item);
+                var versionList = entry.Value as Dictionary<object, object>;
+                foreach(KeyValuePair<object, object> versionEntry in versionList)
+                {
+                    string? version = versionEntry.Key.ToString();
+                    var parametersList = versionEntry.Value as Dictionary<object, object>;
+                    if (version == null || parametersList == null)
+                    {
+                        continue;
+                    }
+
+                    RepositoryItem item = new RepositoryItem();
+                    item.Version = Version.FromString(version);
+                    string? name = entry.Key.ToString();
+                    if (name == null)
+                    {
+                        continue;
+                    }
+                    item.Name = name;
+                    string? changes = null;
+                    string? require = null;
+                    foreach (var parametersEntry in parametersList)
+                    {
+                        if (parametersEntry.Key.ToString() == "changes" && parametersEntry.Value?.ToString() != null)
+                        {
+                            changes = parametersEntry.Value?.ToString();
+                        }
+                        if (parametersEntry.Key.ToString() == "require" && parametersEntry.Value?.ToString() != null)
+                        {
+                            require = parametersEntry.Value?.ToString();
+                        }
+                    }
+                    if (changes == null)
+                    {
+                        continue;
+                    }
+                    if (require == null)
+                    {
+                        require = "3.0";
+                    }
+                    item.Require = Version.FromString(require);
+                    RepositoryItems.Add(item);
+                }
             }
             return RepositoryItems;
         }

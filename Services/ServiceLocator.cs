@@ -5,7 +5,7 @@ using OutfitTool.Services.Updates;
 
 namespace OutfitTool.Services
 {
-    internal class ServiceLocator
+    public class ServiceLocator
     {
         private static readonly Dictionary<Type, object> services = new();
 

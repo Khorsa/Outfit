@@ -10,6 +10,18 @@
     <Compile Update="View\SetHotKey.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Update="View\TabCommonSettings.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="View\TabHotkeys.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="View\TabModules.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="View\TabUpdates.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
   </ItemGroup>
   <ItemGroup>
     <Page Update="Languages\lang.en-US.xaml">

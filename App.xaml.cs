@@ -10,6 +10,5 @@ namespace OutfitTool
     /// </summary>
     public partial class App : Application
     {
-
     }
 }
