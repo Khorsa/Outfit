@@ -1,8 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace OutfitTool.Services.Updates
 {
@@ -34,6 +31,20 @@ namespace OutfitTool.Services.Updates
             }
             return result;
         }
+
+        public List<RepositoryItem> GetLastVersionModules()
+        {
+            var items = new Dictionary<string, RepositoryItem>();
+            foreach (var item in repositoryItems)
+            {
+                if (!items.TryGetValue(item.AssemblyName, out var existingItem) || item.Version > existingItem.Version)
+                {
+                    items[item.AssemblyName] = item;
+                }
+            }
+            return items.Values.ToList();
+        }
+
 
         public List<string> GetModulesNames()
         {

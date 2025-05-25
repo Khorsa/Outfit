@@ -1,10 +1,5 @@
 ﻿using OutfitTool.Services.HotkeyManager;
 using OutfitTool.Services.Settings;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using OutfitTool.ModuleManager;
 using OutfitTool.Common;
 using System.Windows.Input;
@@ -58,7 +53,7 @@ namespace OutfitTool.Services
 
             ModuleManager.ModuleManager moduleManager = ServiceLocator.GetService<ModuleManager.ModuleManager>();
 
-            Module? module = moduleManager.getModule(commandStrings[0]);
+            Module? module = moduleManager.GetModule(commandStrings[0]);
             if (module != null)
             {
                 foreach(CommandInterface cmd in module.moduleController.getCommandList())

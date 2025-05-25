@@ -26,10 +26,6 @@ namespace OutfitTool.View
         public TabUpdates()
         {
             InitializeComponent();
-
-            ServiceLocator.RegisterServices();
-            var updatesManager = ServiceLocator.GetService<UpdatesManager>();
-            updatesManager.updateManagerStatusChanged = updateManagerStatusChanged;
         }
 
         private void updateRepositorySettingsControl()
@@ -40,6 +36,16 @@ namespace OutfitTool.View
             updatesRepository.Text = settings.updatesRepository;
             defaultUpdatesRepository.Content = settings.defaultUpdatesRepository;
             applySettings();
+
+            var updatesManager = ServiceLocator.GetService<UpdatesManagerInterface>();
+            if (settings.checkUpdatesOnStart)
+            {
+                updatesManager.LoadList(updateManagerStatusChanged);
+            }
+            if (settings.installUpdates)
+            {
+                updatesManager.UpdateAll();
+            }
         }
 
         private void updateManagerStatusChanged(bool busy, RepositoryCollection? repositoryItems)
@@ -56,7 +62,19 @@ namespace OutfitTool.View
             }
             if (repositoryItems != null)
             {
-                lvRepositoryItemsList.ItemsSource = repositoryItems.GetModulesNames();
+                var checkService = ServiceLocator.GetService<RepositoryItemConverter>();
+                var ConvertedCollection = checkService.ConvertCollection(repositoryItems);
+                lvRepositoryItemsList.ItemsSource = ConvertedCollection;
+                foreach(var item in lvRepositoryItemsList.Items)
+                {
+                    if (
+                        item is LastCompatibleRepositoryItem 
+                        && StartParameters.ContainsKey("selected_item")
+                        && (item as LastCompatibleRepositoryItem).Name == StartParameters.GetOne<string>("selected_item"))
+                    {
+                        lvRepositoryItemsList.SelectedItem = item;
+                    }
+                }
             }
         }
 
@@ -95,9 +113,72 @@ namespace OutfitTool.View
 
         private void updatesRepository_Loaded(object sender, RoutedEventArgs e)
         {
-            ServiceLocator.RegisterServices();
-
             updateRepositorySettingsControl();
+        }
+
+        private void lvRepositoryItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
+            {
+                panelModuleDescription.Visibility = Visibility.Visible;
+                panelModuleDescription.DataContext = lvRepositoryItemsList.SelectedItem;
+            } else
+            {
+                panelModuleDescription.Visibility = Visibility.Hidden;
+            }
+        }
+
+        private void updateRepositoryList_Click(object sender, RoutedEventArgs e)
+        {
+            var updatesManager = ServiceLocator.GetService<UpdatesManagerInterface>();
+            updatesManager.LoadList(updateManagerStatusChanged);
+        }
+
+        private void Update_Click(object sender, RoutedEventArgs e)
+        {
+            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
+            {
+                var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
+                item.CanUpdate = false;
+                item.Status = LastCompatibleRepositoryItemStatus.Downloading;
+
+                var updatePlate = new UpdateWindow(item);
+                updatePlate.ShowDialog("update");
+
+                panelModuleDescription.DataContext = null;
+                panelModuleDescription.DataContext = item;
+            }
+        }
+
+        private void Install_Click(object sender, RoutedEventArgs e)
+        {
+            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
+            {
+                var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
+                item.CanInstall = false;
+                item.Status = LastCompatibleRepositoryItemStatus.Downloading;
+
+                var updatePlate = new UpdateWindow(item);
+                updatePlate.ShowDialog("install");
+
+                panelModuleDescription.DataContext = null;
+                panelModuleDescription.DataContext = item;
+            }
+        }
+        private void Delete_Click(object sender, RoutedEventArgs e)
+        {
+            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
+            {
+                var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
+                item.CanDelete = false;
+                item.Status = LastCompatibleRepositoryItemStatus.NotAvailable;
+
+                var updatePlate = new UpdateWindow(item);
+                updatePlate.ShowDialog("delete");
+
+                panelModuleDescription.DataContext = null;
+                panelModuleDescription.DataContext = item;
+            }
         }
     }
 }

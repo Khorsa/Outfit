@@ -1,106 +1,172 @@
 ﻿using Common.Logger;
+using OutfitTool.Common;
+using OutfitTool.ModuleManager;
 using OutfitTool.Services.Settings;
 using OutfitTool.View;
-using System.Collections.Generic;
-using System.Data;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
-using System.Runtime.Serialization;
+using System.Reflection.Metadata.Ecma335;
+using System.Windows;
 using System.Windows.Threading;
 using YamlDotNet.Core.Tokens;
 using YamlDotNet.Serialization;
 
 namespace OutfitTool.Services.Updates
 {
-    class UpdatesManager
+    class UpdatesManager: UpdatesManagerInterface
     {
-        public delegate void OnUpdateManagerStatusChanged(bool Busy, RepositoryCollection? repositoryItems);
-
-        public bool Busy = false;
-
-        private readonly HttpClient _httpClient;
-        private CancellationTokenSource? _cancellationTokenSource = null;
-        public RepositoryCollection repositoryItems = new RepositoryCollection();
-        LoggerInterface logger;
-        SettingsManager<AppSettings> settingsManager;
-        public event EventHandler? StatusChanged;
-        private readonly Dispatcher _dispatcher;
-        public OnUpdateManagerStatusChanged? updateManagerStatusChanged = null;
-
-        private string UpdatesStatus { set{
-                if (_dispatcher != null){
-                    _dispatcher.Invoke(() => { logger.Status(value); });
-                }
-            }
-        }
+        public delegate void LoadListHandler(bool Busy, RepositoryCollection? repositoryItems);
+        public delegate void OnUpdateManagerDownloadChanged(string archivePath);
+        private LoggerInterface logger;
 
         public UpdatesManager()
         {
-            logger = ServiceLocator.GetService<LoggerInterface>();
-            settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            _httpClient = new HttpClient();
-            UpdatesStatus = "Обновления не проверялись";
-            _dispatcher = Dispatcher.CurrentDispatcher;
+            this.logger = ServiceLocator.GetService<LoggerInterface>();
+            logger.Status("Обновления не проверялись");
         }
 
-        public void LoadList()
+        public void DeleteModule(RepositoryItem module)
         {
-            this.Busy = true;
-            this.updateManagerStatusChanged(Busy, null);
-
-            UpdatesStatus = "Чтение списка обновлений...";
-            _cancellationTokenSource = new CancellationTokenSource();
-            Task.Run(() => CheckForUpdates(_cancellationTokenSource.Token));
+            RestartApp(null, module);
         }
 
-        private async Task CheckForUpdates(CancellationToken cancellationToken)
+        public async void Download(RepositoryItem item)
+        {
+            string from = item.Url;
+            string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates");
+            string to = Path.Combine(dir, item.Name + ".zip");
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            if (File.Exists(to)) File.Delete(to);
+
+            await DownloadModule(from, to);
+
+            UnpackModule(item, to);
+            RestartApp(item, null);
+        }
+
+        public async void UpdateAll()
+        {
+            // Получаем список установленных модулей
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+            var existingModules = moduleManager.GetModules();
+
+            // Получаем список обновлений
+            var repositoryItems = await CheckForUpdates();
+
+            // Чистим директорию updates
+            string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates");
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+            Directory.CreateDirectory(dir);
+
+            // Собираем последние версии модулей в репозитории
+            var lastModules = repositoryItems.GetLastVersionModules();
+            var modulesToUpdate = new List<RepositoryItem>();
+            foreach (var lastRepoModule in lastModules)
+            {
+                bool foundAndNeedUpdate = false;
+                foreach (var existingModule in existingModules) 
+                { 
+                    if (
+                        existingModule.moduleInfo.AssemblyName == lastRepoModule.AssemblyName 
+                        && existingModule.moduleInfo.Version < lastRepoModule.Version
+                        )
+                    {
+                        foundAndNeedUpdate = true;
+                        break;
+                    }
+                }
+                if (foundAndNeedUpdate)
+                {
+                    modulesToUpdate.Add(lastRepoModule);
+                    logger.Info($"Найден модуль для обновления: {lastRepoModule.AssemblyName}, версия {lastRepoModule.Version.ToString()}");
+                }
+            }
+            if (modulesToUpdate.Count > 0)
+            {
+                await Download(modulesToUpdate);
+                RestartApp(null, null);
+            }
+        }
+
+        public async Task Download(List<RepositoryItem> items)
+        {
+            var tasks = new List<Task<byte[]>>();
+            foreach (var item in items)
+            {
+                string from = item.Url;
+                string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates");
+                string to = Path.Combine(dir, item.Name + ".zip");
+                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                if (File.Exists(to)) File.Delete(to);
+
+                tasks.Add(DownloadModule(from, to));
+            }
+            _ = await Task.WhenAll(tasks);
+        }
+
+        public async void LoadList(LoadListHandler updateManagerCheckStatusChanged)
         {
             try
             {
-                var settings = settingsManager.LoadSettings();
-                var response = await _httpClient.GetAsync(settings.updatesRepository, cancellationToken);
-                response.EnsureSuccessStatusCode();
+                updateManagerCheckStatusChanged(true, null);
+                logger.Status("Чтение списка обновлений..");
 
-                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                var repositoryItems = await CheckForUpdates();
+                logger.Status("Прочитан список модулей из репозитория");
 
-                repositoryItems = ParseUpdateList(content);
+                updateManagerCheckStatusChanged(false, repositoryItems);
 
-                UpdatesStatus = "Прочитан список модулей из репозитория";
-
-                if (this.updateManagerStatusChanged != null && _dispatcher != null)
-                {
-                    _dispatcher.Invoke(() => {
-                        this.Busy = false;
-                        this.updateManagerStatusChanged(Busy, repositoryItems); 
-                    });
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                this.Busy = false;
-                UpdatesStatus = "Проверка обновлений отменена";
-                this.updateManagerStatusChanged(Busy, null);
-            }
-            catch (Exception ex)
-            {
-                this.Busy = false;
-                UpdatesStatus = $"Ошибка при проверке обновлений: {ex.Message}";
-                this.updateManagerStatusChanged(Busy, null);
+            } catch (Exception ex) {
+                logger.Status($"Ошибка при проверке обновлений: {ex.Message}");
+                updateManagerCheckStatusChanged(false, null);
             }
         }
 
-        public void CancelCheck()
+        private List<string> GetMainWindowParameters(string? selectedItemName = null)
         {
-            _cancellationTokenSource?.Cancel();
-            UpdatesStatus = "Проверка обновлений отменена пользователем";
-            Busy = false;
-            this.updateManagerStatusChanged(Busy, null);
+            var parameters = new List<string>();
+            parameters.Add("selected_tab=1");
+            parameters.Add("selected_item=" + selectedItemName ?? "null");
+
+            parameters.Add("left=" + MainWindow.Instance.Left.ToString());
+            parameters.Add("top=" + MainWindow.Instance.Top.ToString());
+            parameters.Add("width=" + MainWindow.Instance.Width.ToString());
+            parameters.Add("height=" + MainWindow.Instance.Height.ToString());
+
+            return parameters;
+        }
+
+
+        private async Task<RepositoryCollection?> CheckForUpdates()
+        {
+            var settings = ServiceLocator.GetService<SettingsManager<AppSettings>>().LoadSettings();
+
+            var client = new HttpClient();
+            var response = await client.GetAsync(settings.updatesRepository);
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync();
+            return ParseUpdateList(content);
         }
 
         private RepositoryCollection ParseUpdateList(string yamlContent)
         {
             var deserializer = new DeserializerBuilder().Build();
             Dictionary<object, object> result = deserializer.Deserialize<dynamic>(yamlContent);
-            Dictionary<object, object> modules = result as Dictionary<object, object>;
+
+            if (!result.ContainsKey("url") || !result.ContainsKey("modules"))
+            {
+                throw new Exception("Invalid updates repository yaml format");
+            }
+
+            string repositoryUrl = result.GetValueOrDefault("url") as string;
+            Dictionary<object, object> modules = result.GetValueOrDefault("modules", new Dictionary<object, object>()) as Dictionary<object, object>;
             var RepositoryItems = new RepositoryCollection();
 
             foreach (KeyValuePair<object, object> entry in modules)
@@ -116,48 +182,81 @@ namespace OutfitTool.Services.Updates
                     }
 
                     RepositoryItem item = new RepositoryItem();
-                    item.Version = Version.FromString(version);
+                    item.Version = ModuleVersion.FromString(version);
                     string? name = entry.Key.ToString();
                     if (name == null)
                     {
                         continue;
                     }
                     item.Name = name;
-                    string? changes = null;
-                    string? require = null;
-                    foreach (var parametersEntry in parametersList)
-                    {
-                        if (parametersEntry.Key.ToString() == "changes" && parametersEntry.Value?.ToString() != null)
-                        {
-                            changes = parametersEntry.Value?.ToString();
-                        }
-                        if (parametersEntry.Key.ToString() == "require" && parametersEntry.Value?.ToString() != null)
-                        {
-                            require = parametersEntry.Value?.ToString();
-                        }
-                    }
-                    if (changes == null)
-                    {
-                        continue;
-                    }
-                    if (require == null)
-                    {
-                        require = "3.0";
-                    }
-                    item.Require = Version.FromString(require);
+
+                    item.Name = GetValue(parametersList, "name") ?? "";
+                    item.DisplayName = GetValue(parametersList, "display_name") ?? "";
+                    item.AssemblyName = GetValue(parametersList, "assembly_name") ?? "";
+                    item.Description = GetValue(parametersList, "description") ?? "";
+                    string? require = GetValue(parametersList, "require") ?? "3.0";
+                    item.Require = ModuleVersion.FromString(require);
+                    item.Changes = GetValue(parametersList, "changes") ?? "";
+                    item.Author = GetValue(parametersList, "author") ?? "";
+                    item.AuthorContacts = GetValue(parametersList, "author_contacts") ?? "";
+
+                    item.Url = Path.Combine(
+                        repositoryUrl, 
+                        item.Name, 
+                        item.Version.ToString(), 
+                        "package.zip"
+                        ).Replace('\\','/');
+
                     RepositoryItems.Add(item);
                 }
             }
             return RepositoryItems;
         }
 
-        private string trimSlashes(string url)
+        private async Task<byte[]> DownloadModule(string from, string to)
         {
-            if (url.EndsWith('/'))
+            var client = new HttpClient();
+            byte[] response = await client.GetByteArrayAsync(from);
+            File.WriteAllBytes(to, response);
+            return response;
+        }
+
+        private void UnpackModule(RepositoryItem module, string downloadedArchive)
+        {
+            // Распаковываем модуль в /updates
+            string extractPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates", module.AssemblyName);
+            if (Directory.Exists(extractPath))
             {
-                return trimSlashes(url.Substring(0, url.Length - 1));
+                Directory.Delete(extractPath, true);
             }
-            return url;
+            ZipFile.ExtractToDirectory(downloadedArchive, extractPath);
+
+            // Удаляем архив
+            File.Delete(downloadedArchive);
+        }
+
+        private void RestartApp(RepositoryItem? selectedModule, RepositoryItem? moduleToDelete)
+        {
+            // Перезапускаем программу через Start.exe
+            string starterPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Start.exe");
+            var parameters = this.GetMainWindowParameters(selectedModule?.Name);
+            if (moduleToDelete != null)
+            {
+                parameters.Add("delete_module=" + moduleToDelete.AssemblyName);
+            }
+            Process.Start(starterPath, parameters);
+            Application.Current.Shutdown();
+        }
+
+
+        private static string? GetValue(Dictionary<object, object> parameters, string key)
+        {
+            string? value = null;
+            if (parameters.ContainsKey(key) && parameters[key].ToString() != null)
+            {
+                value = parameters[key].ToString();
+            }
+            return value;
         }
     }
 }

@@ -1,42 +1,20 @@
-﻿using Common.Logger;
-using Microsoft.VisualBasic.ApplicationServices;
-using OutfitTool.Common;
+﻿using OutfitTool.Common;
 using OutfitTool.ModuleManager;
 using OutfitTool.Services;
 using OutfitTool.Services.HotkeyManager;
 using OutfitTool.Services.Settings;
 using OutfitTool.Services.Updates;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing.Drawing2D;
 using System.Globalization;
-using System.Reflection;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using YamlDotNet.Serialization;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Tab;
-using System.Management;
-using System.Timers;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TreeView;
 using System.Windows.Threading;
-using System.Drawing.Imaging;
-using System.IO;
-using System.Runtime.CompilerServices;
 using Hardcodet.Wpf.TaskbarNotification;
-using System.Collections.ObjectModel;
-using OutfitTool.View;
-using static OutfitTool.Services.Updates.UpdatesManager;
 using Module = OutfitTool.ModuleManager.Module;
+using Common.Logger;
 
 namespace OutfitTool.View
 {
@@ -44,29 +22,29 @@ namespace OutfitTool.View
     {
         public const int WM_HOTKEY = 0x0312; // 786
         public const int ICON_BLINK_INTERVAL = 400;
-
         private static readonly DispatcherTimer iconTimer = new();
-
-        LoggerInterface logger;
+        public static MainWindow Instance { get; private set; }
 
         public MainWindow()
         {
+            MainWindow.Instance = this;
             InitializeComponent();
-            ServiceLocator.RegisterServices();
 
             LocalizationHelper.LanguageChanged += LanguageChanged;
 
-            initLogger();
             initIconTimer();
             initModules();
+
+            ServiceLocator.GetService<LoggerInterface>().Subscribe(this.statusLogHandler);
         }
 
-        private void initLogger()
+        private void statusLogHandler(object? sender, LogEntry logEntry)
         {
-            logger = ServiceLocator.GetService<LoggerInterface>();
-            logger.Subscribe(this.logHandler);
+            if (logEntry.Level == LogLevel.status)
+            {
+                StatusBarItemInfo.Content = logEntry.Message;
+            }
         }
-
 
         private void initIconTimer()
         {
@@ -74,15 +52,15 @@ namespace OutfitTool.View
             iconTimer.Tick += OnModulesTimedEvent;
             iconTimer.Start();
         }
-        private void initModules()
-        {
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
 
-            // Инициализация модулей
-            var settings = settingsManager.LoadSettings();
+        // Инициализация модулей
+        private void initModules()
+        {           
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+            var settings = ServiceLocator.GetService<SettingsManager<AppSettings>>().LoadSettings();
+
             moduleManager.LoadModules(settings.enabledModules);
-            foreach (Module module in moduleManager.getModules())
+            foreach (Module module in moduleManager.GetModules())
             {
                 if (module.enabled)
                 {
@@ -90,7 +68,6 @@ namespace OutfitTool.View
                 }
             }
         }
-
 
         private void LanguageChanged(Object? sender, EventArgs e)
         {
@@ -101,7 +78,6 @@ namespace OutfitTool.View
         {
             var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
             var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            var updatesManager = ServiceLocator.GetService<UpdatesManager>();
 
             hotKeyManager.init(new WindowInteropHelper(this).Handle);
             initInterface();
@@ -114,14 +90,35 @@ namespace OutfitTool.View
             var source = PresentationSource.FromVisual(this) as HwndSource;
             source?.AddHook(WndProc);
 
-            if (settings.checkUpdatesOnStart == true && updatesManager != null)
+
+
+
+
+
+            if (StartParameters.ContainsKey("selected_tab"))
             {
-                updatesManager.LoadList();
-
+                TabControl.SelectedIndex = StartParameters.GetOne<int>("selected_tab");
             }
+
+            // Устанавливаем переданные размеры и положение окна
+            if (StartParameters.ContainsKey("left"))
+            {
+                this.Left = StartParameters.GetOne<int>("left");
+            }
+            if (StartParameters.ContainsKey("top"))
+            {
+                this.Top = StartParameters.GetOne<int>("top");
+            }
+            if (StartParameters.ContainsKey("width"))
+            {
+                this.Width = StartParameters.GetOne<int>("width");
+            }
+            if (StartParameters.ContainsKey("height"))
+            {
+                this.Height = StartParameters.GetOne<int>("height");
+            }
+
         }
-
-
 
 
 
@@ -132,7 +129,7 @@ namespace OutfitTool.View
 
             TaskbarIcon.Visibility = Visibility.Visible;
 
-            var modules = moduleManager.getModules();
+            var modules = moduleManager.GetModules();
             var settings = settingsManager.LoadSettings();
 
             // Установка языка
@@ -152,7 +149,12 @@ namespace OutfitTool.View
                         CommandContextMenu? menu = command.ContextMenu;
                         if (menu != null)
                         {
-                            TrayContextMenu.Items.Add(createTrayMenuItem(menu.text, new Image { Source = menu.image, Width = 16, Height = 16 }, ModuleCommandClick, command));
+                            TrayContextMenu.Items.Add(createTrayMenuItem(
+                                menu.text, 
+                                new Image { Source = menu.image, Width = 16, Height = 16 }, 
+                                ModuleCommandClick, 
+                                command
+                            ));
                         }
                     }
                     TrayContextMenu.Items.Add(new Separator());
@@ -166,11 +168,7 @@ namespace OutfitTool.View
             }
             TrayContextMenu.Items.Add(laguageItem);
             TrayContextMenu.Items.Add(getTrayMenuItem(LocalizationHelper.getString("Exit"), "navigate_cross.png", Exit_Click));
-
         }
-
-
-
 
 
 
@@ -223,20 +221,10 @@ namespace OutfitTool.View
             MenuItem? clickedItem = sender as MenuItem;
             if (clickedItem != null && clickedItem.Tag != null && clickedItem.Tag is CommandInterface)
             {
-                CommandInterface command = clickedItem.Tag as CommandInterface;
-                command.run();
-            }
-        }
-
-        private void logHandler(object? sender, LogEntry logEntry)
-        {
-            string message = logEntry.LogDateTime.ToString() + " " + logEntry.Level.ToString() + ": " + logEntry.Message;
-            logsBlock.Text += message + "\r\n";
-            Debug.WriteLine(message);
-
-            if (logEntry.Level == LogLevel.status)
-            {
-                StatusBarItemInfo.Content = logEntry.Message;
+                CommandInterface? command = clickedItem.Tag as CommandInterface;
+                if (command != null){
+                    command.run();
+                }
             }
         }
 
@@ -275,38 +263,6 @@ namespace OutfitTool.View
 
 
 
-
-
-
-
-        private void applySettings()
-        {
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            var startupManager = ServiceLocator.GetService<StartupManager>();
-
-            var settings = settingsManager.LoadSettings();
-            if (settings.loadOnSystemStart)
-            {
-                startupManager.AddToStartup();
-            }
-            else
-            {
-                startupManager.RemoveFromStartup();
-            }
-        }
-
-        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
-        {
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-
-            var settings = settingsManager.LoadSettings();
-            if (settings.minimizeOnClose)
-            {
-                e.Cancel = true;
-                this.WindowState = WindowState.Minimized;
-            }
-        }
-
         private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
             var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
@@ -316,6 +272,19 @@ namespace OutfitTool.View
                 hotKeyManager.hotKeyPressed(wParam.ToInt32());
             }
             return IntPtr.Zero;
+        }
+
+
+        private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+
+            var settings = settingsManager.LoadSettings();
+            if (settings.minimizeOnClose)
+            {
+                e.Cancel = true;
+                this.WindowState = WindowState.Minimized;
+            }
         }
 
         private void Window_Closed(object sender, EventArgs e)
@@ -329,7 +298,7 @@ namespace OutfitTool.View
             {
                 var source = PresentationSource.FromVisual(this) as HwndSource;
                 source?.RemoveHook(WndProc);
-                var modules = moduleManager.getModules();
+                var modules = moduleManager.GetModules();
                 foreach (Module module in modules)
                 {
                     if (module.enabled)
@@ -356,7 +325,7 @@ namespace OutfitTool.View
         {
             var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
 
-            var modules = moduleManager.getModules();
+            var modules = moduleManager.GetModules();
             foreach (Module module in modules)
             {
                 if (module.enabled)
@@ -387,7 +356,7 @@ namespace OutfitTool.View
             ImageSource icon = new BitmapImage(new Uri("pack://application:,,,/Resources/wrench.ico"));
             if (currentIconIndex != -1)
             {
-                var modules = moduleManager.getModules();
+                var modules = moduleManager.GetModules();
                 var imageSources = new List<BitmapImage>();
                 foreach (Module module in modules)
                 {
@@ -426,7 +395,7 @@ namespace OutfitTool.View
 
             string text = "Outfit Tool";
 
-            var modules = moduleManager.getModules();
+            var modules = moduleManager.GetModules();
             foreach (Module module in modules)
             {
                 if (module.enabled)

@@ -1,38 +1,32 @@
 ﻿using Microsoft.Win32;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
 
 namespace OutfitTool.Services
 {
     class StartupManager
     {
+        private const string AUTORUN_REGISTRY_FOLDER = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+        private const string APP_NAME = "OutfitTool";
+
         public void AddToStartup()
         {
-            string appName = "OutfitTool";
             string appPath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
 
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true))
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(StartupManager.AUTORUN_REGISTRY_FOLDER, true))
             {
                 if (key != null)
                 {
-                    key.SetValue(appName, "\"" + appPath + "\"");
+                    key.SetValue(StartupManager.APP_NAME, "\"" + appPath + "\"");
                 }
             }
         }
 
         public void RemoveFromStartup()
         {
-            string appName = "OutfitTool";
-
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true))
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(StartupManager.AUTORUN_REGISTRY_FOLDER, true))
             {
                 if (key != null)
                 {
-                    key.DeleteValue(appName, false);
+                    key.DeleteValue(StartupManager.APP_NAME, false);
                 }
             }
         }

@@ -84,7 +84,7 @@ namespace OutfitTool.View
             var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
             var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
 
-            var modules = moduleManager.getModules();
+            var modules = moduleManager.GetModules();
 
             // Инициализация списка команд и горячих клавиш
             // В списке должны быть все команды всех включенных модулей и горячие клавиши из настроек
@@ -110,8 +110,6 @@ namespace OutfitTool.View
 
         private void UserControl_Loaded(object sender, RoutedEventArgs e)
         {
-            ServiceLocator.RegisterServices();
-
             initInterface();
         }
     }

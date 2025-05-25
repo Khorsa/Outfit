@@ -2,6 +2,7 @@
 using OutfitTool.Services.HotkeyManager;
 using OutfitTool.Services.Settings;
 using OutfitTool.Services.Updates;
+using OutfitTool.View;
 
 namespace OutfitTool.Services
 {
@@ -15,7 +16,8 @@ namespace OutfitTool.Services
             Register<ModuleManager.ModuleManagerInterface>(() => new ModuleManager.ModuleManager(GetService<LoggerInterface>()));
             Register(() => new SettingsManager<AppSettings>());
             Register(() => new StartupManager());
-            Register(() => new UpdatesManager());
+            Register<UpdatesManagerInterface>(() => new UpdatesManager());
+            Register(() => new RepositoryItemConverter());
             Register(() => new HotKeyManager(GetService<SettingsManager<AppSettings>>()));
         }
         public static T GetService<T>() where T : class

@@ -92,7 +92,7 @@ namespace OutfitTool.View
             // Инициализация модулей
             var settings = settingsManager.LoadSettings();
             moduleManager.LoadModules(settings.enabledModules);
-            foreach (Module module in moduleManager.getModules())
+            foreach (Module module in moduleManager.GetModules())
             {
                 if (module.enabled)
                 {
@@ -104,7 +104,7 @@ namespace OutfitTool.View
         private void initInterface()
         {
             var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
-            var modules = moduleManager.getModules();
+            var modules = moduleManager.GetModules();
 
             // Инициализация полного списка модулей
             var lvModuleItems = new ObservableCollection<ListViewModuleItem>();
@@ -142,8 +142,6 @@ namespace OutfitTool.View
 
         private void UserControl_Loaded(object sender, RoutedEventArgs e)
         {
-            ServiceLocator.RegisterServices();
-
             initInterface();
         }
     }

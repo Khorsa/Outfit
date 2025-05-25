@@ -6,7 +6,7 @@ namespace OutfitTool.ModuleManager
 {
     interface ModuleManagerInterface
     {
-        List<Module> getModules();
+        List<Module> GetModules();
         public void LoadModules(List<string>? enabledModules = null);
         public Module? GetModule(string name);
         public CommandDescriptor? GetCommandDescriptor(string commandString);

@@ -1,13 +1,7 @@
 ﻿using Common.Logger;
 using OutfitTool.ModuleManager;
 using OutfitTool.Services.Settings;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Forms;
 
 namespace OutfitTool.Services.HotkeyManager
 {
@@ -40,7 +34,7 @@ namespace OutfitTool.Services.HotkeyManager
                 if (key != null && commandDescriptor != null) {
 
                     var logger = ServiceLocator.GetService<LoggerInterface>();
-                    logger.Info("Регистрация горячей клавиши" + key.ToString());
+                    logger.Info("Регистрация горячей клавиши " + key.ToString());
 
                     clearKey(commandDescriptor);
                     registerKey(commandDescriptor, key);

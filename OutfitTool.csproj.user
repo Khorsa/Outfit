@@ -16,10 +16,16 @@
     <Compile Update="View\TabHotkeys.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Update="View\TabLogs.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Update="View\TabModules.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
     <Compile Update="View\TabUpdates.xaml.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Update="View\UpdateWindow.xaml.cs">
       <SubType>Code</SubType>
     </Compile>
   </ItemGroup>

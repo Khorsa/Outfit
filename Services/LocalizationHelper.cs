@@ -1,11 +1,5 @@
-﻿using System.Diagnostics;
-using System.Globalization;
-using System.Resources;
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography.X509Certificates;
+﻿using System.Globalization;
 using System.Windows;
-using OutfitTool.Common;
-using YamlDotNet.Core.Tokens;
 
 public class LocalizationHelper
 {

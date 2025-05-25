@@ -1,9 +1,5 @@
-﻿using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
+﻿using System.Runtime.InteropServices;
 using System.Windows.Input;
-using YamlDotNet.Core.Tokens;
 
 namespace OutfitTool.Services.HotkeyManager
 {

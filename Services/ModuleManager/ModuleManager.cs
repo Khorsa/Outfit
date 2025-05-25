@@ -1,12 +1,8 @@
 ﻿using Common.Logger;
 using OutfitTool.Common;
 using OutfitTool.Services.HotkeyManager;
-using System;
-using System.Collections.Generic;
-using System.Drawing;
 using System.IO;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 
 namespace OutfitTool.ModuleManager
 {
@@ -55,6 +51,7 @@ namespace OutfitTool.ModuleManager
                         var dllFile = Path.Combine(moduleDir, moduleName + ".dll");
 
                         Assembly assembly = Assembly.LoadFrom(dllFile);
+
                         Module module = this.parseModule(assembly);
                         module.enabled = enabledModules.Contains(module.assemblyName);
 
@@ -77,7 +74,6 @@ namespace OutfitTool.ModuleManager
         {
             var types = assembly.GetTypes();
 
-            string? name = assembly.GetName().Name;
             ModuleInfoInterface? info = null;
             ModuleControllerInterface? controller = null;
 
@@ -92,6 +88,8 @@ namespace OutfitTool.ModuleManager
                     controller = Activator.CreateInstance(type) as ModuleControllerInterface;
                 }
             }
+
+            string? name = info?.Name;
 
             if (name == null)
             {
@@ -111,29 +109,17 @@ namespace OutfitTool.ModuleManager
             return new Module(name, info, controller);
         }
 
-        public List<Module> getModules()
+        public List<Module> GetModules()
         {
             return this.Modules;
         }
-        public Module? getModule(string name)
-        {
-            foreach (Module module in this.Modules)
-            {
-                if (module.moduleInfo.Name == name)
-                {
-                    return module;
-                }
-            }
-            return null;
-        }
-
         public Module? GetModule(string name)
         {
             foreach (Module module in this.Modules)
             {
                 if (module.moduleInfo.Name == name)
                 {
-                    return (Module)module;
+                    return module;
                 }
             }
             return null;
