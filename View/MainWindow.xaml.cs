@@ -90,11 +90,6 @@ namespace OutfitTool.View
             var source = PresentationSource.FromVisual(this) as HwndSource;
             source?.AddHook(WndProc);
 
-
-
-
-
-
             if (StartParameters.ContainsKey("selected_tab"))
             {
                 TabControl.SelectedIndex = StartParameters.GetOne<int>("selected_tab");
@@ -118,6 +113,11 @@ namespace OutfitTool.View
                 this.Height = StartParameters.GetOne<int>("height");
             }
 
+
+            if (settings.minimizeOnStart)
+            {
+                this.WindowState = WindowState.Minimized;
+            }
         }
 
 

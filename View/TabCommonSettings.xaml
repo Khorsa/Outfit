@@ -9,6 +9,7 @@
     <StackPanel Orientation="Vertical" Background="White">
         <CheckBox x:Name="minimizeOnClose" Click="Input_SettingsChanged" Content="{DynamicResource HideOnClose }" Margin="0 10 0 2" />
         <CheckBox x:Name="loadOnSystemStart" Click="Input_SettingsChanged" Content="{DynamicResource LoadOnSystemStart }" Margin="0 2" />
+        <CheckBox x:Name="minimizeOnStart" Click="Input_SettingsChanged" Content="{DynamicResource MinimizeOnStart }" Margin="0 2" />
         <CheckBox x:Name="checkUpdatesOnStart" Click="Input_SettingsChanged" Content="{DynamicResource CheckUpdatesOnStart }" Margin="0 2" />
         <CheckBox x:Name="installUpdates" Click="Input_SettingsChanged" Content="{DynamicResource AutoinstallUpdates }" Margin="10 2 0 2" />
     </StackPanel>
