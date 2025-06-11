@@ -33,6 +33,7 @@ namespace OutfitTool.View
 
             var settings = settingsManager.LoadSettings();
             settings.minimizeOnClose = minimizeOnClose.IsChecked ?? false;
+            settings.minimizeOnStart = minimizeOnStart.IsChecked ?? false;
             settings.loadOnSystemStart = loadOnSystemStart.IsChecked ?? false;
             settings.checkUpdatesOnStart = checkUpdatesOnStart.IsChecked ?? false;
             settings.installUpdates = installUpdates.IsChecked ?? false;
@@ -46,6 +47,7 @@ namespace OutfitTool.View
 
             var settings = settingsManager.LoadSettings();
             minimizeOnClose.IsChecked = settings.minimizeOnClose;
+            minimizeOnStart.IsChecked = settings.minimizeOnStart;
             loadOnSystemStart.IsChecked = settings.loadOnSystemStart;
             checkUpdatesOnStart.IsChecked = settings.checkUpdatesOnStart;
             installUpdates.IsChecked = settings.installUpdates;

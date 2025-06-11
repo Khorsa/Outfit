@@ -10,6 +10,7 @@
     <v:String x:Key="English">English</v:String>
     <v:String x:Key="Exit">Exit</v:String>
     <v:String x:Key="HideOnClose">Hide window on close</v:String>
+    <v:String x:Key="MinimizeOnStart">Minimize window on start</v:String>
     <v:String x:Key="HotKeys">HotKeys</v:String>
     <v:String x:Key="InstallOnlyMinorVersions">Install only minor versions</v:String>
     <v:String x:Key="Language">Language</v:String>

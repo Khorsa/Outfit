@@ -9,6 +9,7 @@ namespace OutfitTool.Services.Settings
 
         public List<string> enabledModules { get; set; } = new List<string>();
         public bool minimizeOnClose = true;
+        public bool minimizeOnStart = true;
         public bool loadOnSystemStart = true;
         public bool checkUpdatesOnStart = true;
         public string updatesRepository = "https://outfit-tool.ru/repository.yaml";

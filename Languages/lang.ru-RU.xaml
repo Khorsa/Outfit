@@ -10,6 +10,7 @@
     <v:String x:Key="English">Английский</v:String>
     <v:String x:Key="Exit">Выход</v:String>
     <v:String x:Key="HideOnClose">Скрывать окно при закрытии</v:String>
+    <v:String x:Key="MinimizeOnStart">Сворачивать окно при запуске</v:String>
     <v:String x:Key="HotKeys">Горячие клавиши</v:String>
     <v:String x:Key="InstallOnlyMinorVersions">Устанавливать только минорные версии</v:String>
     <v:String x:Key="Language">Язык</v:String>
