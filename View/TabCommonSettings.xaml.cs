@@ -36,7 +36,6 @@ namespace OutfitTool.View
             settings.loadOnSystemStart = loadOnSystemStart.IsChecked ?? false;
             settings.checkUpdatesOnStart = checkUpdatesOnStart.IsChecked ?? false;
             settings.installUpdates = installUpdates.IsChecked ?? false;
-            settings.installOnlyMinorUpdates = installOnlyMinorUpdates.IsChecked ?? false;
             settingsManager.SaveSettings(settings);
             applySettings();
         }
@@ -50,7 +49,6 @@ namespace OutfitTool.View
             loadOnSystemStart.IsChecked = settings.loadOnSystemStart;
             checkUpdatesOnStart.IsChecked = settings.checkUpdatesOnStart;
             installUpdates.IsChecked = settings.installUpdates;
-            installOnlyMinorUpdates.IsChecked = settings.installOnlyMinorUpdates;
             applySettings();
         }
 

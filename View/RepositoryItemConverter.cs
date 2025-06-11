@@ -34,8 +34,10 @@ namespace OutfitTool.View
                 var installed = moduleManager.GetModule(item.Name);
 
                 var resultItem = new LastCompatibleRepositoryItem(item);
-                if (item.Name == App.ModuleInfo.Name)
+
+                if (item.AssemblyName == App.ModuleInfo.AssemblyName)
                 {
+                    // Это основной модуль
                     resultItem.InstalledVersion = App.ModuleInfo.Version;
                     resultItem.HasInstalled = true;
                     resultItem.CanInstall = false;

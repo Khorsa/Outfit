@@ -24,6 +24,7 @@
     <None Remove="Resources\navigate_cross.png" />
     <None Remove="Resources\wrench.ico" />
     <None Remove="Resources\wrench.png" />
+    <None Remove="View\wrench.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -56,6 +57,7 @@
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Resources\wrench.png" />
+    <Resource Include="View\wrench.png" />
   </ItemGroup>
 
 </Project>

@@ -40,7 +40,7 @@
 
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="250" />
                     <ColumnDefinition Width="10" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
@@ -56,7 +56,7 @@
 
                 <GridSplitter Grid.Column="1"/>
 
-                <StackPanel x:Name="panelModuleDescription" Grid.Column="2" Visibility="Hidden">
+                <StackPanel x:Name="panelModuleDescription" Grid.Column="2" Visibility="Hidden" Margin="10">
                     <TextBlock Text="{Binding DisplayName}" FontWeight="Bold" FontSize="16" />
                     <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,5,0,10" />
                     <TextBlock Text="{Binding Url}" TextWrapping="Wrap" Margin="0,5,0,10" />
@@ -64,18 +64,18 @@
                     <StackPanel Orientation="Vertical" VerticalAlignment="Top">
                         <Grid Visibility="{Binding HasInstalled, Converter={StaticResource BoolToVisConverter}}">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"></ColumnDefinition>
                                 <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                <ColumnDefinition Width="*"></ColumnDefinition>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Установленная версия" TextWrapping="Wrap" Margin="0" />
+                            <TextBlock Grid.Column="0" Text="Установленная версия:" TextWrapping="Wrap" Margin="0" Padding="5 0 5 0" />
                             <TextBlock Grid.Column="1" Text="{Binding InstalledVersion}" TextWrapping="Wrap" Margin="0" />
                         </Grid>
-                        <Grid Visibility="{Binding CanUpdate, Converter={StaticResource BoolToVisConverter}}">
+                        <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"></ColumnDefinition>
                                 <ColumnDefinition Width="Auto"></ColumnDefinition>
+                                <ColumnDefinition Width="*"></ColumnDefinition>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Доступная версия" TextWrapping="Wrap" Margin="0" />
+                            <TextBlock Grid.Column="0" Text="Доступная версия: " TextWrapping="Wrap" Margin="0" Padding="5 0 5 0" />
                             <TextBlock Grid.Column="1" Text="{Binding Version}" TextWrapping="Wrap" Margin="0" />
                         </Grid>
                     </StackPanel>
@@ -86,7 +86,6 @@
                         <Button Content="Обновить" Width="80" Margin="5"  IsEnabled="{Binding CanUpdate}" Click="Update_Click"/>
                     </StackPanel>
                 </StackPanel>
-
             </Grid>
 
             <Grid x:Name="updatesManagerPlug" Background="#80000000" Visibility="Hidden">

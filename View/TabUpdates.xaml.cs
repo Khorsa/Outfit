@@ -1,6 +1,6 @@
-﻿using OutfitTool.Services.Settings;
+﻿using OutfitTool.Services;
+using OutfitTool.Services.Settings;
 using OutfitTool.Services.Updates;
-using OutfitTool.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,6 +15,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
+using YamlDotNet.Serialization;
 
 namespace OutfitTool.View
 {
@@ -36,16 +37,6 @@ namespace OutfitTool.View
             updatesRepository.Text = settings.updatesRepository;
             defaultUpdatesRepository.Content = settings.defaultUpdatesRepository;
             applySettings();
-
-            var updatesManager = ServiceLocator.GetService<UpdatesManagerInterface>();
-            if (settings.checkUpdatesOnStart)
-            {
-                updatesManager.LoadList(updateManagerStatusChanged);
-            }
-            if (settings.installUpdates)
-            {
-                updatesManager.UpdateAll();
-            }
         }
 
         private void updateManagerStatusChanged(bool busy, RepositoryCollection? repositoryItems)
@@ -111,9 +102,23 @@ namespace OutfitTool.View
             applySettings();
         }
 
+        private bool autoReadListDone = false;
         private void updatesRepository_Loaded(object sender, RoutedEventArgs e)
         {
             updateRepositorySettingsControl();
+
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+            var settings = settingsManager.LoadSettings();
+            var updatesManager = ServiceLocator.GetService<UpdatesManagerInterface>();
+            if (!autoReadListDone && settings.checkUpdatesOnStart)
+            {
+                updatesManager.LoadList(updateManagerStatusChanged);
+                autoReadListDone = true;
+            }
+            if (settings.installUpdates)
+            {
+                updatesManager.UpdateAll();
+            }
         }
 
         private void lvRepositoryItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)

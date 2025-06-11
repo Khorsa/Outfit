@@ -33,7 +33,12 @@ namespace OutfitTool.Services.Updates
 
         public override string ToString()
         {
-            return Name + " " + Version.ToString();
+            string res = Name + " " + Version.ToString();
+            if (Version.VersionLabel != "")
+            {
+                res += " " + Version.VersionLabel;
+            }
+            return res;
         }
     }
 }

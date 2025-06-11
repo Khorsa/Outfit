@@ -167,12 +167,22 @@ namespace OutfitTool.Services.Updates
 
             string repositoryUrl = result.GetValueOrDefault("url") as string;
             Dictionary<object, object> modules = result.GetValueOrDefault("modules", new Dictionary<object, object>()) as Dictionary<object, object>;
+
+            if (repositoryUrl == null || modules == null)
+            {
+                throw new Exception("Invalid updates repository yaml format");
+            }
+
             var RepositoryItems = new RepositoryCollection();
 
             foreach (KeyValuePair<object, object> entry in modules)
             {
                 var versionList = entry.Value as Dictionary<object, object>;
-                foreach(KeyValuePair<object, object> versionEntry in versionList)
+                if (versionList == null)
+                {
+                    throw new Exception("Invalid updates repository yaml format");
+                }
+                foreach (KeyValuePair<object, object> versionEntry in versionList)
                 {
                     string? version = versionEntry.Key.ToString();
                     var parametersList = versionEntry.Value as Dictionary<object, object>;
@@ -182,7 +192,8 @@ namespace OutfitTool.Services.Updates
                     }
 
                     RepositoryItem item = new RepositoryItem();
-                    item.Version = ModuleVersion.FromString(version);
+                    item.Version = ModuleVersion.FromString(version, GetValue(parametersList, "version_label")??"");
+
                     string? name = entry.Key.ToString();
                     if (name == null)
                     {
@@ -197,6 +208,8 @@ namespace OutfitTool.Services.Updates
                     string? require = GetValue(parametersList, "require") ?? "3.0";
                     item.Require = ModuleVersion.FromString(require);
                     item.Changes = GetValue(parametersList, "changes") ?? "";
+
+
                     item.Author = GetValue(parametersList, "author") ?? "";
                     item.AuthorContacts = GetValue(parametersList, "author_contacts") ?? "";
 

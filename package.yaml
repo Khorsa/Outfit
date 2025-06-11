@@ -1,4 +1,10 @@
 name: outfit-tool
+display_name: "Outfit Tool"
+assembly_name: "OutfitTool"
+description: "Outfit Tool"
+author: "Stolyarov Roman"
+author_contacts: "rshome@mail.ru"
 version: '3.0'
+version_label: 'pre-alpha'
 changes: >
-    3.0 initial version
+    0.1 initial version

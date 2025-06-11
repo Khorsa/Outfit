@@ -13,7 +13,6 @@ namespace OutfitTool.Services.Settings
         public bool checkUpdatesOnStart = true;
         public string updatesRepository = "https://outfit-tool.ru/repository.yaml";
         public bool installUpdates = true;
-        public bool installOnlyMinorUpdates = true;
         public Dictionary<string,string> hotKeys { get; set; } = new Dictionary<string, string>();
 
         public string language = "ru-RU";

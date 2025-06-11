@@ -7,12 +7,13 @@
         xmlns:local="clr-namespace:OutfitTool.View" 
         mc:Ignorable="d"
         Title="{DynamicResource Settings}" 
-        Height="375" 
-        Width="500" 
+        Height="400" 
+        Width="800" 
         StateChanged="Window_StateChanged" 
         Loaded="Window_Loaded" 
         Closed="Window_Closed"
-        Closing="Window_Closing">
+        Closing="Window_Closing" 
+        Icon="/View/wrench.png">
     <DockPanel>
 
         <StatusBar DockPanel.Dock="Bottom" Height="30">
