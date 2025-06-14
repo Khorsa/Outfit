@@ -68,7 +68,7 @@
                                 <ColumnDefinition Width="*"></ColumnDefinition>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Установленная версия:" TextWrapping="Wrap" Margin="0" Padding="5 0 5 0" />
-                            <TextBlock Grid.Column="1" Text="{Binding InstalledVersion}" TextWrapping="Wrap" Margin="0" />
+                            <TextBlock Grid.Column="1" Text="{Binding InstalledVersion.FullVersion}" TextWrapping="Wrap" Margin="0" />
                         </Grid>
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -76,7 +76,7 @@
                                 <ColumnDefinition Width="*"></ColumnDefinition>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" Text="Доступная версия: " TextWrapping="Wrap" Margin="0" Padding="5 0 5 0" />
-                            <TextBlock Grid.Column="1" Text="{Binding Version}" TextWrapping="Wrap" Margin="0" />
+                            <TextBlock Grid.Column="1" Text="{Binding Version.FullVersion}" TextWrapping="Wrap" Margin="0" />
                         </Grid>
                     </StackPanel>
 

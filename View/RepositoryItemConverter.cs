@@ -31,21 +31,28 @@ namespace OutfitTool.View
                     }
                     lastVersionsDict.Remove(item.Name);
                 }
-                var installed = moduleManager.GetModule(item.Name);
 
                 var resultItem = new LastCompatibleRepositoryItem(item);
 
                 if (item.AssemblyName == App.ModuleInfo.AssemblyName)
                 {
                     // Это основной модуль
+                    if (item.Version < App.ModuleInfo.Version) {
+                        continue;
+                    }
                     resultItem.InstalledVersion = App.ModuleInfo.Version;
                     resultItem.HasInstalled = true;
                     resultItem.CanInstall = false;
                     resultItem.CanDelete = false;
-                    resultItem.CanUpdate = (installed != null && installed.moduleInfo.Version < item.Version);
+                    resultItem.CanUpdate = (App.ModuleInfo.Version < item.Version);
                 }
                 else
                 {
+                    var installed = moduleManager.GetModule(item.Name);
+                    if (installed != null && item.Version < installed.moduleInfo.Version)
+                    {
+                        continue;
+                    }
                     resultItem.HasInstalled = (installed != null);
                     resultItem.CanInstall = (installed == null);
                     resultItem.CanDelete = (installed != null);

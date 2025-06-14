@@ -8,10 +8,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
-using System.Reflection.Metadata.Ecma335;
 using System.Windows;
-using System.Windows.Threading;
-using YamlDotNet.Core.Tokens;
 using YamlDotNet.Serialization;
 
 namespace OutfitTool.Services.Updates
