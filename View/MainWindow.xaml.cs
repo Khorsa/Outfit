@@ -164,7 +164,14 @@ namespace OutfitTool.View
             MenuItem laguageItem = getTrayMenuItem(LocalizationHelper.getString("Language"), "font.png");
             foreach (var l in LocalizationHelper.languages)
             {
-                laguageItem.Items.Add(getTrayMenuItem(l.Value.Name, l.Value.FlagResource, ChangeLanguage, l.Value.CultureName));
+                if (LocalizationHelper.Language.ToString() == l.Value.Culture.ToString())
+                {
+                    laguageItem.Items.Add(getTrayMenuItem("• " + l.Value.Name, l.Value.FlagResource, ChangeLanguage, l.Value.CultureName));
+                }
+                else
+                {
+                    laguageItem.Items.Add(getTrayMenuItem(l.Value.Name, l.Value.FlagResource, ChangeLanguage, l.Value.CultureName));
+                }
             }
             TrayContextMenu.Items.Add(laguageItem);
             TrayContextMenu.Items.Add(getTrayMenuItem(LocalizationHelper.getString("Exit"), "navigate_cross.png", Exit_Click));

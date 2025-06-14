@@ -25,7 +25,14 @@
     <v:String x:Key="Settings">Настройки</v:String>
     <v:String x:Key="State">Статус</v:String>
     <v:String x:Key="Updates">Обновления</v:String>
+    <v:String x:Key="Refresh">Обновить</v:String>
     <v:String x:Key="UpdatesRepositoryAddress">Адрес репозитория обновлений</v:String>
-    
+    <v:String x:Key="Version">Версия</v:String>
+    <v:String x:Key="InstalledVersionColon">Текущая версия: </v:String>
+    <v:String x:Key="RepositoryVersionColon">Доступная версия: </v:String>
+    <v:String x:Key="Install">Установить</v:String>
+    <v:String x:Key="Delete">Удалить</v:String>
+    <v:String x:Key="Update">Обновить</v:String>
+
     <v:String x:Key="PressAnyKeyOrEscapeForCancel">Нажмите клавишу или Escape для отмены</v:String>
 </ResourceDictionary>

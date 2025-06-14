@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.Windows;
+using YamlDotNet.Core.Tokens;
 
 public class LocalizationHelper
 {
@@ -85,7 +86,18 @@ public class Language(string Name, string FlagResource, string CultureName)
     {
         get
         {
-            return new Uri(String.Format("Languages/lang.{0}.xaml", CultureName), UriKind.Relative);
+            var uri = new Uri(String.Format("Languages/lang.{0}.xaml", CultureName), UriKind.Relative);
+            // Проверяем, существует ли ресурс
+            try
+            {
+                ResourceDictionary dict = new ResourceDictionary();
+                dict.Source = uri;
+            } catch (Exception)
+            {
+                uri = new Uri(String.Format("Languages/lang.xaml", CultureName), UriKind.Relative);
+            }
+
+            return uri;
         }
     }
 }
