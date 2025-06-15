@@ -257,7 +257,7 @@ namespace OutfitTool.View
 
         private void Exit_Click(object sender, RoutedEventArgs e)
         {
-            Application.Current.Shutdown();
+            this.shutDownApplication();
         }
 
         private void Window_StateChanged(object sender, EventArgs e)
@@ -298,26 +298,37 @@ namespace OutfitTool.View
         {
             var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
             var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+            var settings = settingsManager.LoadSettings();
             var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
 
-            var settings = settingsManager.LoadSettings();
             if (!settings.minimizeOnClose)
             {
-                var source = PresentationSource.FromVisual(this) as HwndSource;
-                source?.RemoveHook(WndProc);
-                var modules = moduleManager.GetModules();
-                foreach (Module module in modules)
-                {
-                    if (module.enabled)
-                    {
-                        module.moduleController.shutdown();
-                    }
-                }
-
-                hotKeyManager.clearAllKeys();
-                Application.Current.Shutdown();
+                shutDownApplication();
             }
         }
+
+        private void shutDownApplication()
+        {
+            var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
+            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+            var settings = settingsManager.LoadSettings();
+            var moduleManager = ServiceLocator.GetService<ModuleManagerInterface>();
+
+            var source = PresentationSource.FromVisual(this) as HwndSource;
+            source?.RemoveHook(WndProc);
+            var modules = moduleManager.GetModules();
+            foreach (Module module in modules)
+            {
+                if (module.enabled)
+                {
+                    module.moduleController.shutdown();
+                }
+            }
+
+            hotKeyManager.clearAllKeys();
+            Application.Current.Shutdown();
+        }
+
 
         private int currentIconIndex = -1;
         private void OnModulesTimedEvent(object? sender, EventArgs e)

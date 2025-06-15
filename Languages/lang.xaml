@@ -29,7 +29,7 @@
     <v:String x:Key="UpdatesRepositoryAddress">Updates repository address</v:String>
     <v:String x:Key="Version">Version</v:String>
     <v:String x:Key="InstalledVersionColon">Installed version: </v:String>
-    <v:String x:Key="RepositoryVersionColon">Repository version:</v:String>
+    <v:String x:Key="RepositoryVersionColon">Repository version: </v:String>
     <v:String x:Key="Install">Install</v:String>
     <v:String x:Key="Delete">Delete</v:String>
     <v:String x:Key="Update">Update</v:String>
