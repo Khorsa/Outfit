@@ -1,189 +1,174 @@
 ﻿using OutfitTool.Services;
 using OutfitTool.Services.Settings;
 using OutfitTool.Services.Updates;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
 using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using YamlDotNet.Serialization;
+using OutfitTool.ModulesAdapter;
 
-namespace OutfitTool.View
+namespace OutfitTool.View;
+
+/// <summary>
+/// Логика взаимодействия для TabUpdates.xaml
+/// </summary>
+public partial class TabUpdates
 {
-    /// <summary>
-    /// Логика взаимодействия для TabUpdates.xaml
-    /// </summary>
-    public partial class TabUpdates : UserControl
+    public TabUpdates()
     {
-        public TabUpdates()
+        InitializeComponent();
+    }
+
+    private void UpdateRepositorySettingsControl()
+    {
+        var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+
+        var settings = settingsManager.LoadSettings();
+        updatesRepository.Text = settings.UpdatesRepository;
+        defaultUpdatesRepository.Content = AppSettings.DEFAULT_UPDATES_REPOSITORY;
+        ApplySettings();
+    }
+
+    private void UpdateManagerStatusChanged(bool busy, RepositoryCollection? repositoryItems)
+    {
+        if (busy)
         {
-            InitializeComponent();
+            this.updatesManagerPlug.Visibility = Visibility.Visible;
+            lvRepositoryItemsList.Visibility = Visibility.Hidden;
         }
-
-        private void updateRepositorySettingsControl()
+        else
         {
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-
-            var settings = settingsManager.LoadSettings();
-            updatesRepository.Text = settings.updatesRepository;
-            defaultUpdatesRepository.Content = settings.defaultUpdatesRepository;
-            applySettings();
+            this.updatesManagerPlug.Visibility = Visibility.Hidden;
+            lvRepositoryItemsList.Visibility = Visibility.Visible;
         }
-
-        private void updateManagerStatusChanged(bool busy, RepositoryCollection? repositoryItems)
+        if (repositoryItems != null)
         {
-            if (busy)
+            var checkService = ServiceLocator.GetService<RepositoryItemConverter>();
+            var convertedCollection = checkService.ConvertCollection(repositoryItems);
+            lvRepositoryItemsList.ItemsSource = convertedCollection;
+            foreach(var item in lvRepositoryItemsList.Items)
             {
-                this.updatesManagerPlug.Visibility = Visibility.Visible;
-                lvRepositoryItemsList.Visibility = Visibility.Hidden;
-            }
-            else
-            {
-                this.updatesManagerPlug.Visibility = Visibility.Hidden;
-                lvRepositoryItemsList.Visibility = Visibility.Visible;
-            }
-            if (repositoryItems != null)
-            {
-                var checkService = ServiceLocator.GetService<RepositoryItemConverter>();
-                var ConvertedCollection = checkService.ConvertCollection(repositoryItems);
-                lvRepositoryItemsList.ItemsSource = ConvertedCollection;
-                foreach(var item in lvRepositoryItemsList.Items)
+                if (
+                    item is LastCompatibleRepositoryItem 
+                    && StartParameters.ContainsKey("selected_item")
+                    && (item as LastCompatibleRepositoryItem)?.Name == StartParameters.GetOne<string>("selected_item"))
                 {
-                    if (
-                        item is LastCompatibleRepositoryItem 
-                        && StartParameters.ContainsKey("selected_item")
-                        && (item as LastCompatibleRepositoryItem).Name == StartParameters.GetOne<string>("selected_item"))
-                    {
-                        lvRepositoryItemsList.SelectedItem = item;
-                    }
+                    lvRepositoryItemsList.SelectedItem = item;
                 }
             }
         }
+    }
 
-        private void applySettings()
+    private void ApplySettings()
+    {
+        var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+        var startupManager = ServiceLocator.GetService<StartupManager>();
+
+        var settings = settingsManager.LoadSettings();
+        if (settings.LoadOnSystemStart)
         {
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            var startupManager = ServiceLocator.GetService<StartupManager>();
-
-            var settings = settingsManager.LoadSettings();
-            if (settings.loadOnSystemStart)
-            {
-                startupManager.AddToStartup();
-            }
-            else
-            {
-                startupManager.RemoveFromStartup();
-            }
+            startupManager.AddToStartup();
         }
-
-        private void DefaultRepository_MouseUp(object sender, MouseButtonEventArgs e)
+        else
         {
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            var settings = settingsManager.LoadSettings();
-            updatesRepository.Text = settings.defaultUpdatesRepository;
+            startupManager.RemoveFromStartup();
         }
+    }
+
+    private void DefaultRepository_MouseUp(object sender, MouseButtonEventArgs e)
+    {
+        updatesRepository.Text = AppSettings.DEFAULT_UPDATES_REPOSITORY;
+    }
 
 
-        private void UpdateRepository_SettingsChanged(object sender, RoutedEventArgs e)
+    private void UpdateRepository_SettingsChanged(object sender, RoutedEventArgs e)
+    {
+        var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+        var settings = settingsManager.LoadSettings();
+        settings.UpdatesRepository = updatesRepository.Text;
+        settingsManager.SaveSettings(settings);
+        ApplySettings();
+    }
+
+    private bool _autoReadListDone;
+    private void updatesRepository_Loaded(object sender, RoutedEventArgs e)
+    {
+        UpdateRepositorySettingsControl();
+
+        var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
+        var settings = settingsManager.LoadSettings();
+        var updatesManager = ServiceLocator.GetService<IUpdatesManagerInterface>();
+        if (!_autoReadListDone && settings.CheckUpdatesOnStart)
         {
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            var settings = settingsManager.LoadSettings();
-            settings.updatesRepository = updatesRepository.Text;
-            settingsManager.SaveSettings(settings);
-            applySettings();
+            updatesManager.LoadList(UpdateManagerStatusChanged);
+            _autoReadListDone = true;
         }
-
-        private bool autoReadListDone = false;
-        private void updatesRepository_Loaded(object sender, RoutedEventArgs e)
+        if (settings.InstallUpdates)
         {
-            updateRepositorySettingsControl();
-
-            var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
-            var settings = settingsManager.LoadSettings();
-            var updatesManager = ServiceLocator.GetService<UpdatesManagerInterface>();
-            if (!autoReadListDone && settings.checkUpdatesOnStart)
-            {
-                updatesManager.LoadList(updateManagerStatusChanged);
-                autoReadListDone = true;
-            }
-            if (settings.installUpdates)
-            {
-                updatesManager.UpdateAll();
-            }
+            updatesManager.UpdateAll();
         }
+    }
 
-        private void lvRepositoryItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void lvRepositoryItemsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
         {
-            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
-            {
-                panelModuleDescription.Visibility = Visibility.Visible;
-                panelModuleDescription.DataContext = lvRepositoryItemsList.SelectedItem;
-            } else
-            {
-                panelModuleDescription.Visibility = Visibility.Hidden;
-            }
-        }
-
-        private void updateRepositoryList_Click(object sender, RoutedEventArgs e)
+            panelModuleDescription.Visibility = Visibility.Visible;
+            panelModuleDescription.DataContext = lvRepositoryItemsList.SelectedItem;
+        } else
         {
-            var updatesManager = ServiceLocator.GetService<UpdatesManagerInterface>();
-            updatesManager.LoadList(updateManagerStatusChanged);
+            panelModuleDescription.Visibility = Visibility.Hidden;
         }
+    }
 
-        private void Update_Click(object sender, RoutedEventArgs e)
-        {
-            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
-            {
-                var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
-                item.CanUpdate = false;
-                item.Status = LastCompatibleRepositoryItemStatus.Downloading;
+    private void updateRepositoryList_Click(object sender, RoutedEventArgs e)
+    {
+        var updatesManager = ServiceLocator.GetService<IUpdatesManagerInterface>();
+        updatesManager.LoadList(UpdateManagerStatusChanged);
+    }
 
-                var updatePlate = new UpdateWindow(item);
-                updatePlate.ShowDialog("update");
+    private void Update_Click(object sender, RoutedEventArgs e)
+    {
+        if (lvRepositoryItemsList.SelectedItem is not LastCompatibleRepositoryItem) return;
+        var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
+        if (item == null) return;
+            
+        item.CanUpdate = false;
+        item.Status = LastCompatibleRepositoryItemStatus.Downloading;
 
-                panelModuleDescription.DataContext = null;
-                panelModuleDescription.DataContext = item;
-            }
-        }
+        var updatePlate = new UpdateWindow(item);
+        updatePlate.ShowDialog("update");
 
-        private void Install_Click(object sender, RoutedEventArgs e)
-        {
-            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
-            {
-                var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
-                item.CanInstall = false;
-                item.Status = LastCompatibleRepositoryItemStatus.Downloading;
+        panelModuleDescription.DataContext = null;
+        panelModuleDescription.DataContext = item;
+    }
 
-                var updatePlate = new UpdateWindow(item);
-                updatePlate.ShowDialog("install");
+    private void Install_Click(object sender, RoutedEventArgs e)
+    {
+        if (lvRepositoryItemsList.SelectedItem is not LastCompatibleRepositoryItem) return;
+        
+        var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
+        if (item == null) return;
+        item.CanInstall = false;
+        item.Status = LastCompatibleRepositoryItemStatus.Downloading;
 
-                panelModuleDescription.DataContext = null;
-                panelModuleDescription.DataContext = item;
-            }
-        }
-        private void Delete_Click(object sender, RoutedEventArgs e)
-        {
-            if (lvRepositoryItemsList.SelectedItem is LastCompatibleRepositoryItem)
-            {
-                var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
-                item.CanDelete = false;
-                item.Status = LastCompatibleRepositoryItemStatus.NotAvailable;
+        var updatePlate = new UpdateWindow(item);
+        updatePlate.ShowDialog("install");
 
-                var updatePlate = new UpdateWindow(item);
-                updatePlate.ShowDialog("delete");
-
-                panelModuleDescription.DataContext = null;
-                panelModuleDescription.DataContext = item;
-            }
-        }
+        panelModuleDescription.DataContext = null;
+        panelModuleDescription.DataContext = item;
+    }
+    private void Delete_Click(object sender, RoutedEventArgs e)
+    {
+        if (lvRepositoryItemsList.SelectedItem is not LastCompatibleRepositoryItem) return;
+        
+        var item = (lvRepositoryItemsList.SelectedItem as LastCompatibleRepositoryItem);
+        if (item == null) return;
+        
+        item.CanDelete = false;
+        item.Status = LastCompatibleRepositoryItemStatus.NotAvailable;
+        var updatePlate = new UpdateWindow(item);
+        updatePlate.ShowDialog("delete");
+        panelModuleDescription.DataContext = null;
+        panelModuleDescription.DataContext = item;
     }
 }

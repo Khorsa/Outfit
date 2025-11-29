@@ -1,17 +1,20 @@
-﻿using OutfitTool.Common;
+﻿using OutfitTool.ModulesAdapter;
+using OutfitTool.ModulesAdapter.Dto;
 
-namespace OutfitTool
+namespace OutfitTool;
+
+public class ModuleInfo : IModuleInfo
 {
-    class ModuleInfo : ModuleInfoInterface
-    {
-        public string Name => "outfit_tool";
-        public string DisplayName => "Outfit Tool";
-        public string AssemblyName => "OutfitTool";
-        public string Description => "Outfit Tool";
-        public ModuleVersion Version => new ModuleVersion(3, 0, "pre-alpha");
-        public ModuleVersion Require => new ModuleVersion(3, 0);
-        public string Changes => "3.0 Тестирование pre-alpha";
-        public string Author => "Stolyarov Roman";
-        public string AuthorContacts => "rshome@mail.ru";
-    }
+    public string Name => "outfit_tool";
+    public string DisplayName => "Outfit Tool";
+    public string AssemblyName => "OutfitTool";
+    public string Description => "Outfit Tool";
+    public ModuleVersion Version => new(3, 0, "alpha");
+    ModuleVersion IModuleInfo.Version => throw new NotImplementedException();
+    public string Changes => "3.0 Тестирование pre-alpha";
+    public string Author => "Stolyarov Roman";
+    public string AuthorContacts => "rshome@mail.ru";
+    public int RequireApiVersion => 2;
+
+    public readonly int[] SupportedApiVersions = [1];
 }

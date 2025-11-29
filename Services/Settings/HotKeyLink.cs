@@ -1,32 +1,20 @@
-﻿using Common;
+﻿using OutfitTool.ModulesAdapter;
 using OutfitTool.Services.HotkeyManager;
 
-namespace OutfitTool.Services.Settings
+namespace OutfitTool.Services.Settings;
+
+public class HotKeyLink(HotKey key, CommandDescriptor command) : IStringSerializable
 {
-    public class HotKeyLink: IStringSerializable
+    public HotKey Key { get; } = key;
+    public CommandDescriptor Command { get; } = command;
+
+    public IStringSerializable FromString(string input)
     {
-        public HotKeyLink(HotKey Key = null, CommandDescriptor Command = null)
-        {
-            this.Key = Key;
-            this.Command = Command;
-        }
+        return HotKeyLinkSerializer.Deserialize(input);
+    }
 
-        public HotKeyLink()
-        {
-        }
-
-
-        public HotKey Key { get; set; }
-        public CommandDescriptor Command { get; set; }
-
-        public IStringSerializable FromString(string input)
-        {
-            return HotKeyLinkSerializer.deserialize(input);
-        }
-
-        public override string ToString()
-        {
-            return HotKeyLinkSerializer.serialize(this);
-        }
+    public override string ToString()
+    {
+        return HotKeyLinkSerializer.Serialize(this);
     }
 }

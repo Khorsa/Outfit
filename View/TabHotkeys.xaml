@@ -16,8 +16,9 @@
         <ListView x:Name="moduleCommandList" Grid.Row="0">
             <ListView.View>
                 <GridView>
-                    <GridViewColumn Header="Name" Width="220" DisplayMemberBinding="{Binding command.Name}" />
-                    <GridViewColumn Header="Hotkey" Width="100" DisplayMemberBinding="{Binding hotKey}" />
+                    <GridViewColumn Header="{DynamicResource Module }" Width="220" DisplayMemberBinding="{Binding Module.ModuleInfo.Name}" />
+                    <GridViewColumn Header="{DynamicResource CommandName }" Width="220" DisplayMemberBinding="{Binding Command.Name}" />
+                    <GridViewColumn Header="{DynamicResource HotKey }" Width="100" DisplayMemberBinding="{Binding HotKey}" />
                 </GridView>
             </ListView.View>
 

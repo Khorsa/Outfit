@@ -12,6 +12,7 @@
     <v:String x:Key="HideOnClose">Hide window on close</v:String>
     <v:String x:Key="MinimizeOnStart">Minimize window on start</v:String>
     <v:String x:Key="HotKeys">HotKeys</v:String>
+    <v:String x:Key="HotKey">HotKey</v:String>
     <v:String x:Key="InstallOnlyMinorVersions">Install only minor versions</v:String>
     <v:String x:Key="Language">Language</v:String>
     <v:String x:Key="LoadOnSystemStart">Load on system start</v:String>
@@ -33,6 +34,7 @@
     <v:String x:Key="Install">Install</v:String>
     <v:String x:Key="Delete">Delete</v:String>
     <v:String x:Key="Update">Update</v:String>
+    <v:String x:Key="CommandName">Command</v:String>
 
     <v:String x:Key="PressAnyKeyOrEscapeForCancel">Press a key or Escape for cancel</v:String>
 </ResourceDictionary>

@@ -13,47 +13,46 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 
-namespace OutfitTool
+namespace OutfitTool;
+
+/// <summary>
+/// Логика взаимодействия для SetHotKey.xaml
+/// </summary>
+public partial class SetHotKey : Window
 {
-    /// <summary>
-    /// Логика взаимодействия для SetHotKey.xaml
-    /// </summary>
-    public partial class SetHotKey : Window
+    private HotKey? _hotKey = null;
+
+    public SetHotKey(string moduleName, string commandName, string commandDescription)
     {
-        private HotKey? hotKey = null;
+        InitializeComponent();
 
-        public SetHotKey(string ModuleName, string CommandName, string CommandDescription)
+        this.CommandDescription.Content = moduleName + "." + commandName + "\r\n(" + commandDescription + ")";
+        this._hotKey = null;
+    }
+
+    public HotKey? GetPressedKey()
+    {
+        return this._hotKey;
+    }
+
+    private void Grid_MouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState == MouseButtonState.Pressed)
         {
-            InitializeComponent();
-
-            this.CommandDescription.Content = ModuleName + "." + CommandName + "\r\n(" + CommandDescription + ")";
-            this.hotKey = null;
+            this.DragMove();
         }
+    }
 
-        public HotKey? getPressedKey()
+    private void Window_KeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape)
         {
-            return this.hotKey;
-        }
-
-        private void Grid_MouseDown(object sender, MouseButtonEventArgs e)
+            this._hotKey = new HotKey(e.Key, Keyboard.Modifiers);
+            DialogResult = true;
+        } else
         {
-            if (e.ButtonState == MouseButtonState.Pressed)
-            {
-                this.DragMove();
-            }
+            DialogResult = false;
         }
-
-        private void Window_KeyUp(object sender, KeyEventArgs e)
-        {
-            if (e.Key != Key.Escape)
-            {
-                this.hotKey = new HotKey(e.Key, Keyboard.Modifiers);
-                DialogResult = true;
-            } else
-            {
-                DialogResult = false;
-            }
-            this.Close();
-        }
+        this.Close();
     }
 }

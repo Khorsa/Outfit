@@ -1,56 +1,55 @@
 ﻿using System.Globalization;
 using System.Windows;
-using YamlDotNet.Core.Tokens;
 
-public class LocalizationHelper
+namespace OutfitTool.Services;
+
+public static class LocalizationHelper
 {
-    public static readonly Dictionary<string, Language> languages = new Dictionary<string, Language>();
+    public static readonly Dictionary<string, Language> Languages = new Dictionary<string, Language>();
     public static event EventHandler? LanguageChanged;
 
     static LocalizationHelper()
     {
-        languages.Add("ru-RU", new Language("Русский", "flags/flag_russia.png", "ru-RU"));
-        languages.Add("en-US", new Language("English", "flags/flag_usa.png", "en-US"));
+        Languages.Add("ru-RU", new Language("Русский", "flags/flag_russia.png", "ru-RU"));
+        Languages.Add("en-US", new Language("English", "flags/flag_usa.png", "en-US"));
     }
 
-    public static string getString(string key)
+    public static string GetString(string key)
     {
-        ResourceDictionary? Dict = (from d in Application.Current.Resources.MergedDictionaries
-                                    where d.Source != null && d.Source.OriginalString.StartsWith("Languages/lang.")
-                                    select d).First();
+        ResourceDictionary? dict = (from d in Application.Current.Resources.MergedDictionaries
+            where d.Source != null && d.Source.OriginalString.StartsWith("Languages/lang.")
+            select d).First();
 
-        if (Dict != null && Dict[key] != null)
+        if (dict != null && dict[key] != null)
         {
-            return Dict[key].ToString() ?? key;
+            return dict[key]?.ToString() ?? key;
         }
         return key;
     }
 
     public static CultureInfo Language
     {
-        get
-        {
-            return System.Threading.Thread.CurrentThread.CurrentUICulture;
-        }
+        get => Thread.CurrentThread.CurrentUICulture;
         set
         {
-            if (value == null) throw new ArgumentNullException("value");
-            if (value == System.Threading.Thread.CurrentThread.CurrentUICulture) return;
+            ArgumentNullException.ThrowIfNull(value);
 
-            //1. Меняем язык приложения:
-            System.Threading.Thread.CurrentThread.CurrentUICulture = value;
+            // Меняем язык приложения:
+            Thread.CurrentThread.CurrentUICulture = value;
 
-            //2. Создаём ResourceDictionary для новой культуры
-            ResourceDictionary dict = new ResourceDictionary();
-            dict.Source = LocalizationHelper.languages[value.Name].DictionarySource;
+            // Создаём ResourceDictionary для новой культуры
+            var dict = new ResourceDictionary
+            {
+                Source = Languages[value.Name].DictionarySource
+            };
 
-            //3. Находим старую ResourceDictionary и удаляем его и добавляем новую ResourceDictionary
-            ResourceDictionary oldDict = (from d in Application.Current.Resources.MergedDictionaries
-                                            where d.Source != null && d.Source.OriginalString.StartsWith("Languages/lang.")
-                                            select d).First();
+            // Находим старую ResourceDictionary и удаляем его и добавляем новую ResourceDictionary
+            var oldDict = (from d in Application.Current.Resources.MergedDictionaries
+                where d.Source != null && d.Source.OriginalString.StartsWith("Languages/lang.")
+                select d).First();
             if (oldDict != null)
             {
-                int ind = Application.Current.Resources.MergedDictionaries.IndexOf(oldDict);
+                var ind = Application.Current.Resources.MergedDictionaries.IndexOf(oldDict);
                 Application.Current.Resources.MergedDictionaries.Remove(oldDict);
                 Application.Current.Resources.MergedDictionaries.Insert(ind, dict);
             }
@@ -59,21 +58,18 @@ public class LocalizationHelper
                 Application.Current.Resources.MergedDictionaries.Add(dict);
             }
 
-            //4. Вызываем евент для оповещения всех окон.
-            if (LanguageChanged != null)
-            {
-                LanguageChanged(Application.Current, new EventArgs());
-            }
+            // Вызываем евент для оповещения всех окон.
+            LanguageChanged?.Invoke(Application.Current, EventArgs.Empty);
         }
     }
 }
 
 
-public class Language(string Name, string FlagResource, string CultureName)
+public class Language(string name, string flagResource, string cultureName)
 {
-    public readonly string Name = Name;
-    public readonly string FlagResource = FlagResource;
-    public readonly string CultureName = CultureName;
+    public readonly string Name = name;
+    public readonly string FlagResource = flagResource;
+    public readonly string CultureName = cultureName;
 
     public CultureInfo Culture
     {
@@ -90,11 +86,11 @@ public class Language(string Name, string FlagResource, string CultureName)
             // Проверяем, существует ли ресурс
             try
             {
-                ResourceDictionary dict = new ResourceDictionary();
+                var dict = new ResourceDictionary();
                 dict.Source = uri;
             } catch (Exception)
             {
-                uri = new Uri(String.Format("Languages/lang.xaml", CultureName), UriKind.Relative);
+                uri = new Uri("Languages/lang.xaml", UriKind.Relative);
             }
 
             return uri;
