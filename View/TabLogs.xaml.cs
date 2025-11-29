@@ -1,38 +1,41 @@
-﻿using Common.Logger;
-using OutfitTool.Services;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
+﻿using OutfitTool.Services;
+using System.IO;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
+using OutfitTool.ModulesAdapter.Logger;
 
-namespace OutfitTool.View
+namespace OutfitTool.View;
+
+/// <summary>
+/// Логика взаимодействия для TabLogs.xaml
+/// </summary>
+public partial class TabLogs : UserControl
 {
-    /// <summary>
-    /// Логика взаимодействия для TabLogs.xaml
-    /// </summary>
-    public partial class TabLogs : UserControl
+    private const bool LogInFile = true;
+    public TabLogs()
     {
-        public TabLogs()
-        {
-            InitializeComponent();
-            ServiceLocator.GetService<LoggerInterface>().Subscribe(this.logHandler);
-        }
+        InitializeComponent();
 
-        private void logHandler(object? sender, LogEntry logEntry)
-        {
-            string message = logEntry.LogDateTime.ToString() + " " + logEntry.Level.ToString() + ": " + logEntry.Message;
-            logsBlock.Text += message + "\r\n";
+        ServiceLocator.GetService<ILogger>().Subscribe(this.LogHandler);
+
+        if (LogInFile){
+            ServiceLocator.GetService<ILogger>().Subscribe(this.LogFileHandler);
         }
+    }
+
+    private void LogHandler(object? sender, LogEntry logEntry)
+    {
+        string message = logEntry.LogDateTime.ToString() + " " + logEntry.Level.ToString() + ": " + logEntry.Message;
+        this.Dispatcher.Invoke(() => {
+            logsBlock.Text += message + "\r\n";
+        });
+
+            
+    }
+
+    private void LogFileHandler(object? sender, LogEntry logEntry)
+    {
+        var file = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Outfit.log");
+        string message = logEntry.LogDateTime.ToString() + " " + logEntry.Level.ToString() + ": " + logEntry.Message;
+        File.WriteAllTextAsync(file, message);
     }
 }

@@ -1,18 +1,18 @@
-﻿using OutfitTool.ModuleManager;
+﻿using OutfitTool.ModulesAdapter.ModuleManager;
+using OutfitTool.Services;
 
-namespace OutfitTool.View
+namespace OutfitTool.View;
+
+public class ListViewModuleItem
 {
-    internal class ListViewModuleItem
+    public ListViewModuleItem(Module module)
     {
-        public ListViewModuleItem(Module module)
-        {
-            this.module = module;
-            this.name = module.moduleInfo.Name;
-            this.state = module.enabled ? LocalizationHelper.getString("On") : LocalizationHelper.getString("Off");
-        }
-
-        public Module module { get; set; }
-        public string name { get; set; }
-        public string state { get; set; }
+        this.Module = module;
+        this.Name = module.ModuleInfo.Name;
+        this.State = module.Enabled ? LocalizationHelper.GetString("On") : LocalizationHelper.GetString("Off");
     }
+
+    public Module Module { get; set; }
+    public string Name { get; set; }
+    public string State { get; set; }
 }

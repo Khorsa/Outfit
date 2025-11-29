@@ -12,6 +12,7 @@
     <v:String x:Key="HideOnClose">Скрывать окно при закрытии</v:String>
     <v:String x:Key="MinimizeOnStart">Сворачивать окно при запуске</v:String>
     <v:String x:Key="HotKeys">Горячие клавиши</v:String>
+    <v:String x:Key="HotKey">Клавиша</v:String>
     <v:String x:Key="InstallOnlyMinorVersions">Устанавливать только минорные версии</v:String>
     <v:String x:Key="Language">Язык</v:String>
     <v:String x:Key="LoadOnSystemStart">Загружать при старте системы</v:String>
@@ -25,7 +26,15 @@
     <v:String x:Key="Settings">Настройки</v:String>
     <v:String x:Key="State">Статус</v:String>
     <v:String x:Key="Updates">Обновления</v:String>
+    <v:String x:Key="Refresh">Обновить</v:String>
     <v:String x:Key="UpdatesRepositoryAddress">Адрес репозитория обновлений</v:String>
-    
+    <v:String x:Key="Version">Версия</v:String>
+    <v:String x:Key="InstalledVersionColon">Текущая версия: </v:String>
+    <v:String x:Key="RepositoryVersionColon">Доступная версия: </v:String>
+    <v:String x:Key="Install">Установить</v:String>
+    <v:String x:Key="Delete">Удалить</v:String>
+    <v:String x:Key="Update">Обновить</v:String>
+    <v:String x:Key="CommandName">Команда</v:String>
+
     <v:String x:Key="PressAnyKeyOrEscapeForCancel">Нажмите клавишу или Escape для отмены</v:String>
 </ResourceDictionary>

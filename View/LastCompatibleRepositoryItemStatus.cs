@@ -1,11 +1,10 @@
-﻿namespace OutfitTool.View
+﻿namespace OutfitTool.View;
+
+public enum LastCompatibleRepositoryItemStatus
 {
-    enum LastCompatibleRepositoryItemStatus
-    {
-        Installed = 0,
-        Downloading = 1,
-        Downloaded = 2,
-        Available = 3,
-        NotAvailable = 4,
-    }
+    Installed = 0,
+    Downloading = 1,
+    Downloaded = 2,
+    Available = 3,
+    NotAvailable = 4,
 }

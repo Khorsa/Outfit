@@ -1,11 +1,10 @@
-﻿namespace OutfitTool.View
+﻿namespace OutfitTool.View;
+
+class StatusBarEventArgs: EventArgs
 {
-    class StatusBarEventArgs: EventArgs
-    {
-        public string Info;
-        public StatusBarEventArgs(string Info) 
-        { 
-            this.Info = Info;
-        }
+    public string Info;
+    public StatusBarEventArgs(string info) 
+    { 
+        this.Info = info;
     }
 }

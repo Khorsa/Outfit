@@ -1,29 +1,24 @@
-﻿using OutfitTool.Common;
+﻿using OutfitTool.ModulesAdapter;
 using OutfitTool.Services;
-using OutfitTool.View;
-using System.Configuration;
-using System.Data;
-using System.Globalization;
 using System.Windows;
 
-namespace OutfitTool
+namespace OutfitTool;
+
+/// <summary>
+/// Interaction logic for App.xaml
+/// </summary>
+public partial class App
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
-    public partial class App : Application
+    public static ModuleInfo ModuleInfo { get; private set; } = null!;
+
+    public App() : base() {
+        ModuleInfo = new ModuleInfo();
+    }
+
+    protected override void OnStartup(StartupEventArgs e)
     {
-        public static ModuleInfoInterface ModuleInfo { get; private set; }
-
-        public App() : base() {
-            App.ModuleInfo = new ModuleInfo();
-        }
-
-        protected override void OnStartup(System.Windows.StartupEventArgs e)
-        {
-            base.OnStartup(e);
-            ServiceLocator.RegisterServices();
-            StartParameters.FillFromCommandLineArguments(e);
-        }
+        base.OnStartup(e);
+        ServiceLocator.RegisterServices();
+        StartParameters.FillFromCommandLineArguments(e);
     }
 }

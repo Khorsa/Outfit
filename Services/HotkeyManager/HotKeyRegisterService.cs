@@ -1,81 +1,80 @@
 ﻿using System.Runtime.InteropServices;
 using System.Windows.Input;
 
-namespace OutfitTool.Services.HotkeyManager
+namespace OutfitTool.Services.HotkeyManager;
+
+public class HotKeyRegisterService
 {
-    internal class HotKeyRegisterService
+    // Импортируем методы из user32.dll
+    [DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    // Идентификаторы для горячих клавиш
+    private static readonly Dictionary<int, HotKey> RegistredKeys = new();
+
+    // Идентификатор для горячих клавиш
+    private static int _nextId = 0;
+
+    // Переменные экземпляра
+    private readonly IntPtr _windowHandle;
+
+    public HotKeyRegisterService(IntPtr windowHandle)
     {
-        // Импортируем методы из user32.dll
-        [DllImport("user32.dll")]
-        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+        _windowHandle = windowHandle;
+    }
 
-        [DllImport("user32.dll")]
-        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-
-        // Идентификаторы для горячих клавиш
-        private static readonly Dictionary<int, HotKey> registredKeys = new();
-
-        // Идентификатор для горячих клавиш
-        private static int nextId = 0;
-
-        // Переменные экземпляра
-        private readonly IntPtr _windowHandle;
-
-        public HotKeyRegisterService(IntPtr windowHandle)
+    public bool Register(HotKey key)
+    {
+        // Проверяем, не зарегистрирована ли уже такая клавиша
+        if (!RegistredKeys.ContainsValue(key))
         {
-            _windowHandle = windowHandle;
-        }
+            // Регистрируем
+            bool result = RegisterHotKey(_windowHandle, _nextId + 1, (uint)key.KeyMod, (uint)KeyInterop.VirtualKeyFromKey(key.KeyCode));
 
-        public bool Register(HotKey key)
-        {
-            // Проверяем, не зарегистрирована ли уже такая клавиша
-            if (!registredKeys.ContainsValue(key))
+            if (!result)
             {
-                // Регистрируем
-                bool result = RegisterHotKey(_windowHandle, nextId + 1, (uint)key.keyMod, (uint)KeyInterop.VirtualKeyFromKey(key.keyCode));
-
-                if (!result)
-                {
-                    throw new Exception("Горячая клавиша " + key.ToString() + " уже зарегистрирована другим приложением.\r\nНазначте другую горячую клавишу.");
-                }
-
-                nextId++;
-                registredKeys.Add(nextId, key);
-                return true;
+                throw new Exception("Горячая клавиша " + key.ToString() + " уже зарегистрирована другим приложением.\r\nНазначте другую горячую клавишу.");
             }
-            return false;
-        }
 
-        public void Unregister(HotKey key)
-        {
-            // Снимаем клавишу с регистрации
-            foreach(KeyValuePair<int, HotKey> pair in registredKeys)
-            {
-                if (pair.Value == key)
-                {
-                    UnregisterHotKey(_windowHandle, pair.Key);
-                }
-            }
+            _nextId++;
+            RegistredKeys.Add(_nextId, key);
+            return true;
         }
+        return false;
+    }
 
-        public void UnregisterAll()
+    public void Unregister(HotKey key)
+    {
+        // Снимаем клавишу с регистрации
+        foreach(KeyValuePair<int, HotKey> pair in RegistredKeys)
         {
-            foreach (KeyValuePair<int, HotKey> pair in registredKeys)
+            if (pair.Value == key)
             {
                 UnregisterHotKey(_windowHandle, pair.Key);
             }
         }
+    }
 
-        public HotKey? getById(int Id)
+    public void UnregisterAll()
+    {
+        foreach (KeyValuePair<int, HotKey> pair in RegistredKeys)
         {
-            HotKey? key = null;
-            registredKeys.TryGetValue(Id, out key);
-            return key;
+            UnregisterHotKey(_windowHandle, pair.Key);
         }
+    }
 
-        public void Dispose()
-        {
-            UnregisterAll();
-        }
+    public HotKey? GetById(int id)
+    {
+        HotKey? key = null;
+        RegistredKeys.TryGetValue(id, out key);
+        return key;
+    }
+
+    public void Dispose()
+    {
+        UnregisterAll();
     }
 }

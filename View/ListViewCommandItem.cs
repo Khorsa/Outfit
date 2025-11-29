@@ -1,19 +1,18 @@
-﻿using OutfitTool.Common;
-using OutfitTool.ModuleManager;
+﻿using OutfitTool.ModulesAdapter;
+using OutfitTool.ModulesAdapter.ModuleManager;
 
-namespace OutfitTool.View
+namespace OutfitTool.View;
+
+public class ListViewCommandItem
 {
-    internal class ListViewCommandItem
+    public ListViewCommandItem(ICommand command, Module module, string hotKey)
     {
-        public ListViewCommandItem(CommandInterface command, Module module, string hotKey)
-        {
-            this.command = command;
-            this.module = module;
-            this.hotKey = hotKey;
-        }
-
-        public CommandInterface command { get; set; }
-        public Module module { get; set; }
-        public string hotKey { get; set; }
+        this.Command = command;
+        this.Module = module;
+        this.HotKey = hotKey;
     }
+
+    public ICommand Command { get; set; }
+    public Module Module { get; set; }
+    public string HotKey { get; set; }
 }

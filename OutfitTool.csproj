@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <ApplicationIcon>wrench.ico</ApplicationIcon>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -24,7 +25,10 @@
     <None Remove="Resources\navigate_cross.png" />
     <None Remove="Resources\wrench.ico" />
     <None Remove="Resources\wrench.png" />
-    <None Remove="View\wrench.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="wrench.ico" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,7 +40,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Common\Common.csproj" />
+    <ProjectReference Include="..\API\v1\API1.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -57,7 +61,6 @@
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </Resource>
     <Resource Include="Resources\wrench.png" />
-    <Resource Include="View\wrench.png" />
   </ItemGroup>
 
 </Project>

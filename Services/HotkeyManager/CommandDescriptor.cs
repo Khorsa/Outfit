@@ -1,30 +1,29 @@
-﻿using OutfitTool.Common;
-using OutfitTool.ModuleManager;
+﻿using OutfitTool.ModulesAdapter;
+using OutfitTool.ModulesAdapter.ModuleManager;
 
-namespace OutfitTool.Services.HotkeyManager
+namespace OutfitTool.Services.HotkeyManager;
+
+public class CommandDescriptor
 {
-    public class CommandDescriptor
+    public Module Module;
+    public ICommand Command;
+
+    public CommandDescriptor(
+        Module module,
+        ICommand command
+    )
     {
-        public Module module;
-        public CommandInterface command;
+        this.Module = module;
+        this.Command = command;
+    }
 
-        public CommandDescriptor(
-            Module module,
-            CommandInterface command
-            )
-        {
-            this.module = module;
-            this.command = command;
-        }
+    public override string ToString()
+    {
+        return Module.AssemblyName + "." + Command.Name;
+    }
 
-        public override string ToString()
-        {
-            return module.assemblyName + "." + command.Name;
-        }
-
-        public static string[] getModuleAndCommandNames(string name)
-        {
-            return name.Split('.');
-        }
+    public static string[] GetModuleAndCommandNames(string name)
+    {
+        return name.Split('.');
     }
 }

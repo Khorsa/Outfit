@@ -12,6 +12,7 @@
     <v:String x:Key="HideOnClose">Hide window on close</v:String>
     <v:String x:Key="MinimizeOnStart">Minimize window on start</v:String>
     <v:String x:Key="HotKeys">HotKeys</v:String>
+    <v:String x:Key="HotKey">HotKey</v:String>
     <v:String x:Key="InstallOnlyMinorVersions">Install only minor versions</v:String>
     <v:String x:Key="Language">Language</v:String>
     <v:String x:Key="LoadOnSystemStart">Load on system start</v:String>
@@ -25,7 +26,15 @@
     <v:String x:Key="Settings">Settings</v:String>
     <v:String x:Key="State">State</v:String>
     <v:String x:Key="Updates">Updates</v:String>
+    <v:String x:Key="Refresh">Refresh</v:String>
     <v:String x:Key="UpdatesRepositoryAddress">Updates repository address</v:String>
+    <v:String x:Key="Version">Version</v:String>
+    <v:String x:Key="InstalledVersionColon">Installed version: </v:String>
+    <v:String x:Key="RepositoryVersionColon">Repository version: </v:String>
+    <v:String x:Key="Install">Install</v:String>
+    <v:String x:Key="Delete">Delete</v:String>
+    <v:String x:Key="Update">Update</v:String>
+    <v:String x:Key="CommandName">Command</v:String>
 
     <v:String x:Key="PressAnyKeyOrEscapeForCancel">Press a key or Escape for cancel</v:String>
 </ResourceDictionary>

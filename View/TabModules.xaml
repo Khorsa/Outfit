@@ -16,8 +16,8 @@
             <ListView x:Name="moduleList" Grid.Row="0" SelectionChanged="moduleList_SelectionChanged" Margin="0,0,0,10">
                 <ListView.View>
                     <GridView>
-                        <GridViewColumn DisplayMemberBinding="{Binding name}" Width="150" Header="{DynamicResource Module }" />
-                        <GridViewColumn DisplayMemberBinding="{Binding state}" Width="75" Header="{DynamicResource State }" />
+                        <GridViewColumn DisplayMemberBinding="{Binding Name}" Width="150" Header="{DynamicResource Module }" />
+                        <GridViewColumn DisplayMemberBinding="{Binding State}" Width="75" Header="{DynamicResource State }" />
                     </GridView>
                 </ListView.View>
             </ListView>
