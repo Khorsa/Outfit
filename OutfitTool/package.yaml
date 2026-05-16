@@ -1,0 +1,11 @@
+name: outfit_tool
+display_name: "Outfit Tool"
+assembly_name: "OutfitTool"
+description: "Outfit Tool"
+author: "Stolyarov Roman"
+author_contacts: "rshome@mail.ru"
+version: "3.0"
+version_label: "release"
+required_api: "1"
+changes: >
+    3.0 release

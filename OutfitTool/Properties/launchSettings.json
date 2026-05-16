@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "OutfitTool": {
+      "commandName": "Project",
+      "commandLineArgs": "--no_update"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+API/*/bin/
+API/*/obj/
+OutfitTool/bin/
+OutfitTool/obj/
+Start/bin/
+Start/obj/
+
+.vs/
+*.user
+*.suo
+
+.idea
+CONTRIBUTING.md
