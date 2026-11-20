@@ -24,6 +24,21 @@ public static class PackageVerifier
 
         if (!string.IsNullOrWhiteSpace(item.Signature))
         {
+            // sign_all.bat записывает в signature именно SHA256 (hex),
+            // поэтому поддерживаем оба формата: SHA256 и base64 RSA-подпись.
+            if (IsSha256Hex(item.Signature))
+            {
+                var signatureHash = Convert.ToHexString(SHA256.HashData(bytes));
+                if (!string.Equals(signatureHash, item.Signature.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"Контрольная сумма пакета {item.AssemblyName} не совпадает.");
+                }
+
+                logger.Info($"SHA256 пакета {item.AssemblyName} проверена.");
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(item.PublicKey))
             {
                 throw new InvalidOperationException(
@@ -74,5 +89,11 @@ public static class PackageVerifier
             throw new InvalidOperationException(
                 $"Контрольная сумма пакета {item.AssemblyName} не совпадает.");
         }
+    }
+
+    private static bool IsSha256Hex(string value)
+    {
+        var trimmed = value.Trim();
+        return trimmed.Length == 64 && trimmed.All(Uri.IsHexDigit);
     }
 }
