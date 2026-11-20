@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,7 @@ public static class LocalizationHelper
     {
         ResourceDictionary? dict = (from d in Application.Current.Resources.MergedDictionaries
             where d.Source != null && d.Source.OriginalString.StartsWith("Languages/lang.")
-            select d).First();
+            select d).FirstOrDefault();
 
         if (dict != null && dict[key] != null)
         {
@@ -42,19 +42,26 @@ public static class LocalizationHelper
         {
             ArgumentNullException.ThrowIfNull(value);
 
+            if (!Languages.TryGetValue(value.Name, out var language))
+            {
+                // Неизвестная/устаревшая культура в настройках не должна блокировать запуск.
+                language = Languages["ru-RU"];
+                value = language.Culture;
+            }
+
             // Меняем язык приложения:
             Thread.CurrentThread.CurrentUICulture = value;
 
             // Создаём ResourceDictionary для новой культуры
             var dict = new ResourceDictionary
             {
-                Source = Languages[value.Name].DictionarySource
+                Source = language.DictionarySource
             };
 
             // Находим старую ResourceDictionary и удаляем его и добавляем новую ResourceDictionary
             var oldDict = (from d in Application.Current.Resources.MergedDictionaries
                 where d.Source != null && d.Source.OriginalString.StartsWith("Languages/lang.")
-                select d).First();
+                select d).FirstOrDefault();
             if (oldDict != null)
             {
                 var ind = Application.Current.Resources.MergedDictionaries.IndexOf(oldDict);

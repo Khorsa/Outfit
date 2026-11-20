@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,59 +18,49 @@ static class HotKeyLinkSerializer
 {
     public static string Serialize(HotKeyLink link)
     {
-        string result =
-            link.Key.KeyMod.ToString() +
-            '+' +
-            link.Key.KeyCode +
-            '-' + 
-            link.Command.Module.ModuleInfo.Name + 
-            '.' + 
-            link.Command.Command.Name;
-        return result;
+        return $"{link.Key.KeyMod}+{link.Key.KeyCode}-{link.Command.Module.ModuleInfo.Name}.{link.Command.Command.Name}";
     }
 
     public static HotKeyLink Deserialize(string serialized)
     {
-        string[] keyAndCommandStrings = serialized.Split('-');
-        if (keyAndCommandStrings.Length != 2)
+        if (string.IsNullOrWhiteSpace(serialized))
         {
-            throw new Exception("Неверный формат сериализованной HotKeyLink " + serialized);
-        }
-        string[] keyStrings = keyAndCommandStrings[0].Split('+');
-        string[] commandStrings = keyAndCommandStrings[1].Split('.');
-        if (keyStrings.Length != 2 || commandStrings.Length != 2)
-        {
-            throw new Exception("Неверный формат сериализованной HotKeyLink " + serialized);
+            throw new FormatException("Пустая строка HotKeyLink.");
         }
 
-        HotKey? key = null;
-        if (
-            Enum.TryParse(keyStrings[1], out Key k) &&
-            Enum.TryParse(keyStrings[0], out ModifierKeys m)
-        )
+        var separator = serialized.IndexOf('-');
+        if (separator <= 0 || separator == serialized.Length - 1)
         {
-            key = new HotKey(k, m);
+            throw new FormatException("Неверный формат сериализованной HotKeyLink: " + serialized);
         }
 
-        if (key == null)
+        var keyPart = serialized[..separator];
+        var commandPart = serialized[(separator + 1)..];
+
+        var keyStrings = keyPart.Split('+');
+        if (keyStrings.Length != 2
+            || !Enum.TryParse(keyStrings[0], out ModifierKeys modifier)
+            || !Enum.TryParse(keyStrings[1], out Key keyCode))
         {
-            throw new Exception("Неверный формат сериализованной HotKeyLink " + serialized);
+            throw new FormatException("Неверный формат горячей клавиши: " + keyPart);
         }
 
-        ModuleManager moduleManager = ServiceLocator.GetService<ModuleManager>();
-
-        Module? module = moduleManager.GetModule(commandStrings[0]);
-        if (module != null)
+        var commandSeparator = commandPart.IndexOf('.');
+        if (commandSeparator <= 0 || commandSeparator == commandPart.Length - 1)
         {
-            foreach(ICommand cmd in module.ModuleController.GetCommandList())
-            {
-                if (cmd.Name == commandStrings[1])
-                {
-                    return new HotKeyLink(key, new CommandDescriptor(module, cmd));
-                }
-            }
+            throw new FormatException("Неверный формат команды: " + commandPart);
         }
 
-        throw new Exception("Не найдена команда " + commandStrings[0] + '.' + commandStrings[1]);
+        var moduleName = commandPart[..commandSeparator];
+        var commandName = commandPart[(commandSeparator + 1)..];
+
+        var moduleManager = ServiceLocator.GetService<IModuleManager>();
+        var command = moduleManager.GetCommandDescriptor(moduleName + "." + commandName);
+        if (command == null)
+        {
+            throw new InvalidOperationException($"Не найдена команда {moduleName}.{commandName}");
+        }
+
+        return new HotKeyLink(new HotKey(keyCode, modifier), command);
     }
 }

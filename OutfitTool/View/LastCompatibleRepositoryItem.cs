@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -34,6 +34,9 @@ public class LastCompatibleRepositoryItem : RepositoryItem
         this.Changes = item.Changes;
         this.Author = item.Author;
         this.AuthorContacts = item.AuthorContacts;
+        this.Sha256 = item.Sha256;
+        this.Signature = item.Signature;
+        this.PublicKey = item.PublicKey;
         this.Status = LastCompatibleRepositoryItemStatus.Available;
         this.Url = item.Url;
     }

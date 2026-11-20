@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -8,23 +8,37 @@
  */
 
 using System.Globalization;
-using OutfitTool.ModulesAdapter.ModuleManager;
-using OutfitTool.Services.Settings;
-using OutfitTool.View;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using System.Threading;
 using System.Windows;
 using OutfitTool.ModulesAdapter.Dto;
 using OutfitTool.ModulesAdapter.Logger;
+using OutfitTool.ModulesAdapter.ModuleManager;
+using OutfitTool.Services.Settings;
+using OutfitTool.View;
 using YamlDotNet.Serialization;
 
 namespace OutfitTool.Services.Updates;
 
-class UpdatesManager: IUpdatesManagerInterface
+class UpdatesManager : IUpdatesManagerInterface
 {
     public delegate void LoadListHandler(bool busy, RepositoryCollection? repositoryItems);
-    public delegate void OnUpdateManagerDownloadChanged(string archivePath);
+
+    private const long MaxPackageSizeBytes = 200L * 1024 * 1024;
+
+    private static readonly HttpClient HttpClient = new()
+    {
+        Timeout = TimeSpan.FromSeconds(60)
+    };
+
+    private static readonly Regex SafeNameRegex = new(
+        @"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private readonly ILogger _logger;
     private readonly FilesUpdater _filesUpdater;
 
@@ -40,256 +54,468 @@ class UpdatesManager: IUpdatesManagerInterface
         RestartApp(null, module);
     }
 
-    public async void Download(RepositoryItem item)
+    public async Task DownloadAsync(RepositoryItem item, CancellationToken cancellationToken = default)
     {
-        string from = item.Url;
-        string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates");
-        string to = Path.Combine(dir, item.Name + ".zip");
-        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-        if (File.Exists(to)) File.Delete(to);
+        try
+        {
+            await DownloadInternal(item, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Status("Загрузка обновления отменена.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка загрузки обновления {item.AssemblyName}: {ex}");
+            MessageBox.Show(
+                $"Не удалось скачать обновление: {ex.Message}",
+                "Ошибка обновления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
 
-        await DownloadModule(from, to);
+    public async Task UpdateAllAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await UpdateAllInternal(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Status("Автоматическое обновление отменено.");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка автоматического обновления: {ex}");
+            MessageBox.Show(
+                $"Не удалось выполнить автоматическое обновление: {ex.Message}",
+                "Ошибка обновления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
 
-        UnpackModule(item, to);
+    private async Task DownloadInternal(RepositoryItem item, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateRepositoryItem(item);
+
+        var dir = GetUpdatesDirectory();
+        Directory.CreateDirectory(dir);
+
+        var archivePath = Path.Combine(dir, item.Name + ".zip");
+        if (!IsPathUnder(dir, archivePath))
+        {
+            throw new InvalidOperationException("Недопустимый путь архива обновления.");
+        }
+
+        if (File.Exists(archivePath)) File.Delete(archivePath);
+
+        var bytes = await DownloadModule(item.Url, archivePath, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        VerifyPackage(item, bytes);
+        cancellationToken.ThrowIfCancellationRequested();
+        UnpackModule(item, archivePath);
+        cancellationToken.ThrowIfCancellationRequested();
         RestartApp(item, null);
     }
 
-    public async void UpdateAll()
+    private async Task UpdateAllInternal(CancellationToken cancellationToken)
     {
-        // Получаем список установленных модулей
         var moduleManager = ServiceLocator.GetService<IModuleManager>();
         var existingModules = moduleManager.GetModules();
 
-        // Получаем список обновлений
-        var repositoryItems = await CheckForUpdates();
+        var repositoryItems = await CheckForUpdates(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        // Чистим директорию updates
-        string dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates");
+        var dir = GetUpdatesDirectory();
         if (Directory.Exists(dir))
         {
             Directory.Delete(dir, true);
         }
+
         Directory.CreateDirectory(dir);
 
-        // Собираем последние версии модулей в репозитории
-        var lastModules = repositoryItems?.GetLastVersionModules();
+        var lastModules = repositoryItems.GetLastVersionModules();
         var modulesToUpdate = new List<RepositoryItem>();
-        foreach (var lastRepoModule in lastModules??[])
+
+        foreach (var lastRepoModule in lastModules)
         {
-            bool foundAndNeedUpdate = false;
-            foreach (var existingModule in existingModules) 
-            { 
-                if (
-                    existingModule.ModuleInfo.AssemblyName == lastRepoModule.AssemblyName 
-                    && existingModule.ModuleInfo.Version < lastRepoModule.Version
-                )
+            if (!IsApiCompatible(lastRepoModule))
+            {
+                _logger.Warning(
+                    $"Пропущено обновление {lastRepoModule.AssemblyName}: требуется API {lastRepoModule.RequiredApi}, " +
+                    $"поддерживается {string.Join(",", App.ModuleInfo.SupportedApiVersions)}.");
+                continue;
+            }
+
+            var foundAndNeedUpdate = false;
+
+            if (string.Equals(lastRepoModule.AssemblyName, App.ModuleInfo.AssemblyName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                foundAndNeedUpdate = App.ModuleInfo.Version < lastRepoModule.Version;
+            }
+            else
+            {
+                foreach (var existingModule in existingModules)
                 {
-                    foundAndNeedUpdate = true;
-                    break;
+                    if (existingModule.ModuleInfo.AssemblyName == lastRepoModule.AssemblyName
+                        && existingModule.ModuleInfo.Version < lastRepoModule.Version)
+                    {
+                        foundAndNeedUpdate = true;
+                        break;
+                    }
                 }
             }
-            if (foundAndNeedUpdate)
-            {
-                modulesToUpdate.Add(lastRepoModule);
-                _logger.Info($"Найден модуль для обновления: {lastRepoModule.AssemblyName}, версия {lastRepoModule.Version}");
-            }
+
+            if (!foundAndNeedUpdate) continue;
+
+            modulesToUpdate.Add(lastRepoModule);
+            _logger.Info($"Найден пакет для обновления: {lastRepoModule.AssemblyName}, версия {lastRepoModule.Version}");
         }
-        if (modulesToUpdate.Count > 0)
-        {
-            await DownloadModules(modulesToUpdate);
-            RestartApp(null, null);
-        }
+
+        if (modulesToUpdate.Count == 0) return;
+
+        await DownloadModules(modulesToUpdate, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        RestartApp(null, null);
     }
 
-    private async Task DownloadModules(List<RepositoryItem> items)
+    private async Task DownloadModules(List<RepositoryItem> items, CancellationToken cancellationToken)
     {
+        var dir = GetUpdatesDirectory();
+        Directory.CreateDirectory(dir);
+
         var tasks = new List<Task<byte[]>>();
         foreach (var item in items)
         {
-            var from = item.Url;
-            var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates");
+            ValidateRepositoryItem(item);
+
             var to = Path.Combine(dir, item.Name + ".zip");
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            if (!IsPathUnder(dir, to))
+            {
+                throw new InvalidOperationException("Недопустимый путь архива обновления.");
+            }
+
             if (File.Exists(to)) File.Delete(to);
-
-            tasks.Add(DownloadModule(from, to));
+            tasks.Add(DownloadModule(item.Url, to, cancellationToken));
         }
-        _ = await Task.WhenAll(tasks);
 
-        foreach (var item in items)
+        var results = await Task.WhenAll(tasks);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        for (var i = 0; i < items.Count; i++)
         {
-            var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates");
-            var to = Path.Combine(dir, item.Name + ".zip");
-            UnpackModule(item, to);
+            VerifyPackage(items[i], results[i]);
+            UnpackModule(items[i], Path.Combine(dir, items[i].Name + ".zip"));
         }
     }
 
-    public async void LoadList(LoadListHandler updateManagerCheckStatusChanged)
+    public async Task LoadListAsync(LoadListHandler updateManagerCheckStatusChanged,
+        CancellationToken cancellationToken = default)
     {
         try
         {
             updateManagerCheckStatusChanged(true, null);
             _logger.Status("Чтение списка обновлений..");
 
-            var repositoryItems = await CheckForUpdates();
+            var repositoryItems = await CheckForUpdates(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.Status("Прочитан список модулей из репозитория");
 
             updateManagerCheckStatusChanged(false, repositoryItems);
         }
-        catch (Exception ex) {
+        catch (OperationCanceledException)
+        {
+            _logger.Status("Проверка обновлений отменена.");
+            updateManagerCheckStatusChanged(false, null);
+        }
+        catch (Exception ex)
+        {
             _logger.Status($"Ошибка при проверке обновлений: {ex.Message}");
+            _logger.Error($"Ошибка при проверке обновлений: {ex}");
             updateManagerCheckStatusChanged(false, null);
         }
     }
 
     private Dictionary<string, string> GetMainWindowParameters(string? selectedItemName = null)
     {
-        var parameters = new Dictionary<string, string>
+        var parameters = new Dictionary<string, string>();
+
+        if (MainWindow.Instance == null) return parameters;
+
+        parameters["selected_tab"] = "1";
+        if (!string.IsNullOrWhiteSpace(selectedItemName))
         {
-            { "selected_tab", "1" },
-            { "selected_item", selectedItemName ?? "null" },
-            { "left", MainWindow.Instance?.Left.ToString(CultureInfo.InvariantCulture) ?? "null" },
-            { "top", MainWindow.Instance?.Top.ToString(CultureInfo.InvariantCulture) ?? "null" },
-            { "width", MainWindow.Instance?.Width.ToString(CultureInfo.InvariantCulture) ?? "null" },
-            { "height", MainWindow.Instance?.Height.ToString(CultureInfo.InvariantCulture) ?? "null" }
-        };
+            parameters["selected_item"] = selectedItemName;
+        }
+
+        parameters["left"] = MainWindow.Instance.Left.ToString(CultureInfo.InvariantCulture);
+        parameters["top"] = MainWindow.Instance.Top.ToString(CultureInfo.InvariantCulture);
+        parameters["width"] = MainWindow.Instance.Width.ToString(CultureInfo.InvariantCulture);
+        parameters["height"] = MainWindow.Instance.Height.ToString(CultureInfo.InvariantCulture);
 
         return parameters;
     }
 
-
-    private async Task<RepositoryCollection?> CheckForUpdates()
+    private async Task<RepositoryCollection> CheckForUpdates(CancellationToken cancellationToken)
     {
         var settings = ServiceLocator.GetService<SettingsManager<AppSettings>>().LoadSettings();
+        var repositoryUrl = settings.UpdatesRepository;
+        var pinnedPublicKey = settings.UpdatesPublicKey;
+
+        if (!Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttps
+                && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)))
+        {
+            _logger.Error($"Недопустимый адрес репозитория обновлений: '{repositoryUrl}'.");
+            throw new InvalidOperationException("Укажите HTTPS-адрес репозитория обновлений.");
+        }
 
         try
         {
-            var client = new HttpClient();
-            var response = await client.GetAsync(settings.UpdatesRepository);
+            using var response = await HttpClient.GetAsync(uri, cancellationToken);
             response.EnsureSuccessStatusCode();
 
-            var content = await response.Content.ReadAsStringAsync();
-            return ParseUpdateList(content);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            return ParseUpdateList(content, pinnedPublicKey);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            _logger.Error("Репозиторий " + settings.UpdatesRepository + " недоступен");
-            return new RepositoryCollection();
+            _logger.Error($"Репозиторий {repositoryUrl} недоступен: {ex.Message}");
+            throw;
         }
     }
 
-    private RepositoryCollection ParseUpdateList(string yamlContent)
+    private RepositoryCollection ParseUpdateList(string yamlContent, string? pinnedPublicKey)
     {
         var deserializer = new DeserializerBuilder().Build();
-        Dictionary<object, object> result = deserializer.Deserialize<dynamic>(yamlContent);
+        var result = deserializer.Deserialize<Dictionary<object, object>>(yamlContent);
 
-        if (!result.ContainsKey("url") || !result.ContainsKey("modules"))
+        if (result == null
+            || !result.TryGetValue("url", out var urlValue)
+            || !result.TryGetValue("modules", out var modulesValue)
+            || modulesValue is not Dictionary<object, object> modules)
         {
             throw new Exception("Invalid updates repository yaml format");
         }
 
-        var repositoryUrl = result.GetValueOrDefault("url") as string;
-        var modules = result.GetValueOrDefault("modules", new Dictionary<object, object>()) as Dictionary<object, object>;
-
-        if (repositoryUrl == null || modules == null)
+        var repositoryUrl = urlValue?.ToString();
+        if (!Uri.TryCreate(repositoryUrl, UriKind.Absolute, out var repositoryUri)
+            || (repositoryUri.Scheme != Uri.UriSchemeHttps && !repositoryUri.IsLoopback))
         {
-            throw new Exception("Invalid updates repository yaml format");
+            throw new Exception("Invalid updates repository url");
         }
 
         var repositoryItems = new RepositoryCollection();
+
+        var manifestPublicKey = result.TryGetValue("public_key", out var publicKeyValue)
+            ? publicKeyValue?.ToString()
+            : null;
+        var effectivePublicKey = string.IsNullOrWhiteSpace(pinnedPublicKey)
+            ? manifestPublicKey
+            : pinnedPublicKey;
+
+        if (!string.IsNullOrWhiteSpace(pinnedPublicKey)
+            && !string.IsNullOrWhiteSpace(manifestPublicKey)
+            && !string.Equals(pinnedPublicKey.Trim(), manifestPublicKey.Trim(), StringComparison.Ordinal))
+        {
+            _logger.Warning("Публичный ключ в манифесте отличается от закреплённого; используется закреплённый ключ.");
+        }
 
         foreach (var entry in modules)
         {
             if (entry.Value is not Dictionary<object, object> versionList)
             {
-                throw new Exception("Invalid updates repository yaml format");
+                _logger.Warning("Пропущена запись репозитория: ожидался список версий.");
+                continue;
             }
+
+            var packageName = entry.Key?.ToString();
+            if (string.IsNullOrWhiteSpace(packageName)) continue;
+
             foreach (var versionEntry in versionList)
             {
-                var version = versionEntry.Key.ToString();
-                var parametersList = versionEntry.Value as Dictionary<object, object>;
-                if (version == null || parametersList == null)
+                try
                 {
-                    continue;
+                    var versionString = versionEntry.Key?.ToString();
+                    if (string.IsNullOrWhiteSpace(versionString)) continue;
+                    if (versionEntry.Value is not Dictionary<object, object> parameters) continue;
+
+                    var version = ModuleVersion.FromString(versionString, GetValue(parameters, "version_label") ?? "");
+
+                    var item = new RepositoryItem
+                    {
+                        Version = version,
+                        Name = GetSafeName(GetValue(parameters, "name"), packageName),
+                        DisplayName = GetValue(parameters, "display_name") ?? "",
+                        AssemblyName = GetSafeName(GetValue(parameters, "assembly_name"), packageName),
+                        Description = GetValue(parameters, "description") ?? "",
+                        Changes = GetValue(parameters, "changes") ?? "",
+                        Author = GetValue(parameters, "author") ?? "",
+                        AuthorContacts = GetValue(parameters, "author_contacts") ?? "",
+                        Sha256 = GetValue(parameters, "sha256") ?? "",
+                        Signature = GetValue(parameters, "signature") ?? "",
+                        PublicKey = effectivePublicKey ?? ""
+                    };
+
+                    var requiredApi = GetValue(parameters, "required_api") ?? "1";
+                    item.RequiredApi = int.TryParse(requiredApi, out var api) ? api : 1;
+
+                    item.Url = BuildPackageUrl(repositoryUri, item.Name, item.Version);
+                    repositoryItems.Add(item);
                 }
-
-                RepositoryItem item = new RepositoryItem
+                catch (Exception ex)
                 {
-                    Version = ModuleVersion.FromString(version, GetValue(parametersList, "version_label")??"")
-                };
-
-                var name = entry.Key.ToString();
-                if (name == null) continue;
-                item.Name = name;
-
-                item.Name = GetValue(parametersList, "name") ?? "";
-                item.DisplayName = GetValue(parametersList, "display_name") ?? "";
-                item.AssemblyName = GetValue(parametersList, "assembly_name") ?? "";
-                item.Description = GetValue(parametersList, "description") ?? "";
-                var requiredApi = GetValue(parametersList, "required_api") ?? "1";
-                item.RequiredApi = int.Parse(requiredApi);
-                item.Changes = GetValue(parametersList, "changes") ?? "";
-                item.Author = GetValue(parametersList, "author") ?? "";
-                item.AuthorContacts = GetValue(parametersList, "author_contacts") ?? "";
-
-                item.Url = Path.Combine(
-                    repositoryUrl, 
-                    item.Name, 
-                    item.Version.ToString(), 
-                    "package.zip"
-                ).Replace('\\','/');
-
-                repositoryItems.Add(item);
+                    _logger.Warning($"Пропущена версия '{versionEntry.Key}' пакета '{packageName}': {ex.Message}");
+                }
             }
         }
+
         return repositoryItems;
     }
 
-    private async Task<byte[]> DownloadModule(string from, string to)
+    private static string BuildPackageUrl(Uri repositoryUri, string packageName, ModuleVersion version)
     {
-        var client = new HttpClient();
-        var response = await client.GetByteArrayAsync(from);
-        File.WriteAllBytes(to, response);
-        return response;
+        var baseUrl = repositoryUri.ToString().TrimEnd('/');
+        return $"{baseUrl}/{Uri.EscapeDataString(packageName)}/{Uri.EscapeDataString(version.ToString())}/package.zip";
+    }
+
+    private async Task<byte[]> DownloadModule(string from, string to, CancellationToken cancellationToken)
+    {
+        if (!Uri.TryCreate(from, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback))
+        {
+            throw new InvalidOperationException($"Недопустимый URL пакета: '{from}'.");
+        }
+
+        using var response = await HttpClient.GetAsync(uri, cancellationToken);
+
+        if (response.Content.Headers.ContentLength is > MaxPackageSizeBytes)
+        {
+            throw new InvalidOperationException("Пакет обновления слишком большой.");
+        }
+
+        var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        if (bytes.LongLength > MaxPackageSizeBytes)
+        {
+            throw new InvalidOperationException("Пакет обновления слишком большой.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        File.WriteAllBytes(to, bytes);
+        return bytes;
     }
 
     private static void UnpackModule(RepositoryItem module, string downloadedArchive)
     {
-        // Распаковываем модуль в /updates
-        string extractPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "updates", module.AssemblyName);
+        var updatesDirectory = Path.GetFullPath(GetUpdatesDirectory());
+        var extractPath = Path.GetFullPath(Path.Combine(updatesDirectory, module.AssemblyName));
+
+        if (!IsPathUnder(updatesDirectory, extractPath))
+        {
+            throw new InvalidOperationException("Путь распаковки выходит за пределы каталога updates.");
+        }
+
+        using (var archive = ZipFile.OpenRead(downloadedArchive))
+        {
+            foreach (var entry in archive.Entries)
+            {
+                var entryPath = Path.GetFullPath(Path.Combine(extractPath, entry.FullName));
+                if (!IsPathUnder(extractPath, entryPath))
+                {
+                    throw new InvalidOperationException(
+                        $"Архив содержит недопустимый путь: '{entry.FullName}'.");
+                }
+
+                if (entry.Length > MaxPackageSizeBytes)
+                {
+                    throw new InvalidOperationException(
+                        $"Файл '{entry.FullName}' в архиве слишком большой.");
+                }
+            }
+        }
+
         if (Directory.Exists(extractPath))
         {
             Directory.Delete(extractPath, true);
         }
-        ZipFile.ExtractToDirectory(downloadedArchive, extractPath);
 
-        // Удаляем архив
+        ZipFile.ExtractToDirectory(downloadedArchive, extractPath);
         File.Delete(downloadedArchive);
     }
 
     private void RestartApp(RepositoryItem? selectedModule, RepositoryItem? moduleToDelete)
     {
-        // Получаем параметры для восстановления состояния
-        var mainAppParameters = GetMainWindowParameters(selectedModule?.Name);
-    
-        var modulesToDelete = new List<string>();
-        if (moduleToDelete != null)
+        try
         {
-            modulesToDelete.Add(moduleToDelete.AssemblyName);
+            var mainAppParameters = GetMainWindowParameters(selectedModule?.Name);
+
+            var modulesToDelete = new List<string>();
+            if (moduleToDelete != null)
+            {
+                modulesToDelete.Add(moduleToDelete.AssemblyName);
+            }
+
+            _filesUpdater.Restart(modulesToDelete, mainAppParameters);
+            Application.Current.Shutdown();
         }
-    
-        _filesUpdater.Restart(modulesToDelete, mainAppParameters);
-        Application.Current.Shutdown();
+        catch (Exception ex)
+        {
+            _logger.Error($"Не удалось запустить обновление: {ex}");
+            MessageBox.Show(
+                $"Не удалось запустить обновление: {ex.Message}",
+                "Ошибка обновления",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
     }
 
+    private static void ValidateRepositoryItem(RepositoryItem item)
+    {
+        if (item == null) throw new ArgumentNullException(nameof(item));
+        if (!SafeNameRegex.IsMatch(item.Name)) throw new InvalidOperationException($"Недопустимое имя пакета: '{item.Name}'.");
+        if (!SafeNameRegex.IsMatch(item.AssemblyName)) throw new InvalidOperationException($"Недопустимое имя сборки: '{item.AssemblyName}'.");
+        if (item.Version is null) throw new InvalidOperationException("Не задана версия пакета.");
+    }
+
+    private static string GetSafeName(string? value, string fallback)
+    {
+        var candidate = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        if (!SafeNameRegex.IsMatch(candidate))
+        {
+            throw new InvalidOperationException($"Недопустимое имя пакета/сборки: '{candidate}'.");
+        }
+
+        return candidate;
+    }
 
     private static string? GetValue(Dictionary<object, object> parameters, string key)
     {
-        string? value = null;
-        if (parameters.ContainsKey(key) && parameters[key].ToString() != null)
-        {
-            value = parameters[key].ToString();
-        }
-        return value;
+        return parameters.TryGetValue(key, out var value) ? value?.ToString() : null;
+    }
+
+    private static bool IsApiCompatible(RepositoryItem item)
+    {
+        return App.ModuleInfo.SupportedApiVersions.Contains(item.RequiredApi);
+    }
+
+    private static string GetUpdatesDirectory()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "updates");
+    }
+
+    private static bool IsPathUnder(string root, string path)
+    {
+        var normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                             + Path.DirectorySeparatorChar;
+        return Path.GetFullPath(path).StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void VerifyPackage(RepositoryItem item, byte[] bytes)
+    {
+        PackageVerifier.Verify(item, bytes, _logger);
     }
 }

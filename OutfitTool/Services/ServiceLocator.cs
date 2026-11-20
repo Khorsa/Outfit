@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -26,7 +26,7 @@ public static class ServiceLocator
         Register<IModuleManager>(() => new ModuleManager(GetService<ILogger>()));
         Register(() => new SettingsManager<AppSettings>());
         Register(() => new StartupManager());
-        Register(() => new FilesUpdater(GetService<ILogger>()));
+        Register(() => new FilesUpdater(GetService<ILogger>(), StartParameters.InstallDirectory));
         Register<IUpdatesManagerInterface>(() => new UpdatesManager(GetService<FilesUpdater>()));
         Register(() => new RepositoryItemConverter());
         Register(() => new HotKeyManager(GetService<SettingsManager<AppSettings>>()));

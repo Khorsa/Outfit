@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -29,7 +29,7 @@ namespace OutfitTool.View;
 public partial class MainWindow
 {
     private const int WM_HOTKEY = 0x0312; // 786
-    private const int ICON_BLINK_INTERVAL = 400;
+    private const int ICON_BLINK_INTERVAL = 500;
     private static readonly DispatcherTimer IconTimer = new();
     public static MainWindow? Instance { get; private set; }
 
@@ -66,13 +66,21 @@ public partial class MainWindow
     {           
         var moduleManager = ServiceLocator.GetService<IModuleManager>();
         var settings = ServiceLocator.GetService<SettingsManager<AppSettings>>().LoadSettings();
+        var logger = ServiceLocator.GetService<ILogger>();
 
         moduleManager.LoadModules(settings.EnabledModules);
         foreach (Module module in moduleManager.GetModules())
         {
-            if (module.Enabled)
+            if (!module.Enabled) continue;
+
+            try
             {
-                module.ModuleController.Init(ServiceLocator.GetService<ILogger>());
+                module.ModuleController.Init(logger);
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Не удалось инициализировать модуль {module.ModuleInfo.Name}: {ex}");
+                module.Enabled = false;
             }
         }
     }
@@ -87,40 +95,44 @@ public partial class MainWindow
         var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
         var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
 
-        hotKeyManager.Init(new WindowInteropHelper(this).Handle);
+        try
+        {
+            hotKeyManager.Init(new WindowInteropHelper(this).Handle);
+        }
+        catch (Exception ex)
+        {
+            ServiceLocator.GetService<ILogger>().Error($"Ошибка инициализации горячих клавиш: {ex}");
+        }
+
         InitInterface();
-            
 
         var settings = settingsManager.LoadSettings();
-        settingsManager.SaveSettings(settings);
-        LocalizationHelper.Language = new CultureInfo(settings.Language);
+
+        try
+        {
+            LocalizationHelper.Language = new CultureInfo(settings.Language);
+        }
+        catch (Exception ex)
+        {
+            ServiceLocator.GetService<ILogger>().Warning($"Не удалось применить язык '{settings.Language}': {ex.Message}");
+            LocalizationHelper.Language = new CultureInfo("ru-RU");
+        }
 
         var source = PresentationSource.FromVisual(this) as HwndSource;
         source?.AddHook(WndProc);
 
-        if (StartParameters.ContainsKey("selected_tab"))
+        if (StartParameters.TryGetOne("selected_tab", out int selectedTab)
+            && selectedTab >= 0
+            && selectedTab < TabControl.Items.Count)
         {
-            TabControl.SelectedIndex = StartParameters.GetOne<int>("selected_tab");
+            TabControl.SelectedIndex = selectedTab;
         }
 
-        // Устанавливаем переданные размеры и положение окна
-        if (StartParameters.ContainsKey("left"))
-        {
-            this.Left = StartParameters.GetOne<int>("left");
-        }
-        if (StartParameters.ContainsKey("top"))
-        {
-            this.Top = StartParameters.GetOne<int>("top");
-        }
-        if (StartParameters.ContainsKey("width"))
-        {
-            this.Width = StartParameters.GetOne<int>("width");
-        }
-        if (StartParameters.ContainsKey("height"))
-        {
-            this.Height = StartParameters.GetOne<int>("height");
-        }
-
+        // Устанавливаем переданные размеры и положение окна.
+        if (StartParameters.TryGetOne("left", out int left)) this.Left = left;
+        if (StartParameters.TryGetOne("top", out int top)) this.Top = top;
+        if (StartParameters.TryGetOne("width", out int width) && width > 0) this.Width = width;
+        if (StartParameters.TryGetOne("height", out int height) && height > 0) this.Height = height;
 
         if (settings.MinimizeOnStart)
         {
@@ -139,32 +151,45 @@ public partial class MainWindow
 
         var modules = moduleManager.GetModules();
         var settings = settingsManager.LoadSettings();
+        var logger = ServiceLocator.GetService<ILogger>();
 
         // Установка языка
         foreach (Module module in modules)
         {
-            module.ModuleController.SetLanguage(settings.Language);
+            try
+            {
+                module.ModuleController.SetLanguage(settings.Language);
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Модуль {module.ModuleInfo.Name}: ошибка SetLanguage: {ex.Message}");
+            }
         }
 
         // Инициализация контекстного меню
         TrayContextMenu.Items.Clear();
         foreach (Module module in modules)
         {
-            if (module.Enabled)
+            if (!module.Enabled) continue;
+
+            try
             {
                 foreach (ICommand command in module.ModuleController.GetCommandList())
                 {
                     CommandContextMenu? menu = command.ContextMenu;
-                    if (menu != null)
-                    {
-                        TrayContextMenu.Items.Add(CreateTrayMenuItem(
-                            menu.Text, 
-                            menu.Image == null ? null : new Image { Source = menu.Image, Width = 16, Height = 16 }, 
-                            ModuleCommandClick, 
-                            command
-                        ));
-                    }
+                    if (menu == null) continue;
+
+                    TrayContextMenu.Items.Add(CreateTrayMenuItem(
+                        menu.Text, 
+                        menu.Image == null ? null : new Image { Source = menu.Image, Width = 16, Height = 16 }, 
+                        ModuleCommandClick, 
+                        command
+                    ));
                 }
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Модуль {module.ModuleInfo.Name}: ошибка построения меню: {ex.Message}");
             }
         }
         TrayContextMenu.Items.Add(new Separator());
@@ -233,7 +258,20 @@ public partial class MainWindow
     {
         if (sender is MenuItem { Tag: ICommand command })
         {
-            command.Run();
+            try
+            {
+                command.Run();
+            }
+            catch (Exception ex)
+            {
+                ServiceLocator.GetService<ILogger>().Error(
+                    $"Ошибка выполнения команды '{command.Name}': {ex}");
+                MessageBox.Show(
+                    $"Команда '{command.Name}' завершилась ошибкой. Подробности в логе.",
+                    "OutfitTool",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
         }
     }
 
@@ -274,12 +312,18 @@ public partial class MainWindow
 
     private IntPtr WndProc(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
+        if (msg != WM_HOTKEY) return IntPtr.Zero;
 
-        if (msg == WM_HOTKEY) 
+        try
         {
+            var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
             hotKeyManager.HotKeyPressed(wParam.ToInt32());
         }
+        catch (Exception ex)
+        {
+            ServiceLocator.GetService<ILogger>().Error($"Ошибка обработки горячей клавиши: {ex}");
+        }
+
         return IntPtr.Zero;
     }
 
@@ -311,24 +355,38 @@ public partial class MainWindow
     {
         var hotKeyManager = ServiceLocator.GetService<HotKeyManager>();
         var moduleManager = ServiceLocator.GetService<IModuleManager>();
+        var logger = ServiceLocator.GetService<ILogger>();
 
         var source = PresentationSource.FromVisual(this) as HwndSource;
         source?.RemoveHook(WndProc);
         var modules = moduleManager.GetModules();
         foreach (Module module in modules)
         {
-            if (module.Enabled)
+            if (!module.Enabled) continue;
+
+            try
             {
                 module.ModuleController.Shutdown();
             }
+            catch (Exception ex)
+            {
+                logger.Warning($"Модуль {module.ModuleInfo.Name}: ошибка Shutdown: {ex.Message}");
+            }
         }
 
-        hotKeyManager.ClearAllKeys();
+        try
+        {
+            hotKeyManager.ClearAllKeys();
+        }
+        catch (Exception ex)
+        {
+            logger.Warning($"Ошибка очистки горячих клавиш: {ex.Message}");
+        }
+
         Application.Current.Shutdown();
     }
 
 
-    private int _currentIconIndex = -1;
     private void OnModulesTimedEvent(object? sender, EventArgs e)
     {
         TaskbarIcon.IconSource = this.GetTaskbarIcon();
@@ -340,11 +398,14 @@ public partial class MainWindow
     private void CheckNotifications()
     {
         var moduleManager = ServiceLocator.GetService<IModuleManager>();
+        var logger = ServiceLocator.GetService<ILogger>();
 
         var modules = moduleManager.GetModules();
         foreach (Module module in modules)
         {
-            if (module.Enabled)
+            if (!module.Enabled) continue;
+
+            try
             {
                 var notification = module.ModuleController.PopNotification();
                 if (notification != null)
@@ -352,6 +413,10 @@ public partial class MainWindow
                     _lastNotification = notification;
                     TaskbarIcon.ShowBalloonTip(notification.Title, notification.Message, BalloonIcon.Info);
                 }
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Модуль {module.ModuleInfo.Name}: ошибка PopNotification: {ex.Message}");
             }
         }
     }
@@ -365,61 +430,72 @@ public partial class MainWindow
     }
 
 
+    private int _iconBlinkIndex = -1;
+    private ImageSource? _defaultTrayIcon;
+
+    private ImageSource DefaultTrayIcon =>
+        _defaultTrayIcon ??= new BitmapImage(new Uri("pack://application:,,,/Resources/wrench.ico"));
+
     private ImageSource GetTaskbarIcon()
     {
         var moduleManager = ServiceLocator.GetService<IModuleManager>();
+        var logger = ServiceLocator.GetService<ILogger>();
 
-        ImageSource icon = new BitmapImage(new Uri("pack://application:,,,/Resources/wrench.ico"));
-        if (_currentIconIndex != -1)
+        var moduleIcons = new List<ImageSource>();
+        foreach (Module module in moduleManager.GetModules())
         {
-            var modules = moduleManager.GetModules();
-            var imageSources = new List<BitmapImage>();
-            foreach (Module module in modules)
-            {
-                if (module.Enabled)
-                {
-                    var i = module.ModuleController.GetTaskbarIcon();
-                    if (i != null)
-                    {
-                        imageSources.Add(i);
-                    }
-                }
-            }
+            if (!module.Enabled) continue;
 
-            if (_currentIconIndex >= 0 && _currentIconIndex < imageSources.Count())
+            try
             {
-                icon = imageSources[_currentIconIndex];
+                var icon = module.ModuleController.GetTaskbarIcon();
+                if (icon != null) moduleIcons.Add(icon);
             }
-
-            _currentIconIndex++;
-            if (_currentIconIndex >= imageSources.Count())
+            catch (Exception ex)
             {
-                _currentIconIndex = -1;
+                logger.Warning($"Модуль {module.ModuleInfo.Name}: ошибка GetTaskbarIcon: {ex.Message}");
             }
         }
-        else
+
+        // Нет активных иконок модулей — показываем обычную иконку без мигания.
+        if (moduleIcons.Count == 0)
         {
-            _currentIconIndex = 0;
+            _iconBlinkIndex = -1;
+            return DefaultTrayIcon;
         }
 
-        return icon;
+        // Мигаем: основная иконка → иконки модулей → основная иконка...
+        // Это индикатор внимания (например, непрочитанное письмо), а не смена темы.
+        var sequence = new List<ImageSource>(moduleIcons.Count + 1) { DefaultTrayIcon };
+        sequence.AddRange(moduleIcons);
+
+        _iconBlinkIndex = (_iconBlinkIndex + 1) % sequence.Count;
+        return sequence[_iconBlinkIndex];
     }
 
     private string GetTaskbarIconText()
     {
         var moduleManager = ServiceLocator.GetService<IModuleManager>();
+        var logger = ServiceLocator.GetService<ILogger>();
 
         string text = "Outfit Tool";
 
         var modules = moduleManager.GetModules();
         foreach (Module module in modules)
         {
-            if (module.Enabled)
+            if (!module.Enabled) continue;
+
+            try
             {
                 string? moduleTaskbarIconText = module.ModuleController.GetTaskbarIconText();
-                if (moduleTaskbarIconText != null) {
+                if (moduleTaskbarIconText != null)
+                {
                     text = text + "\r\n" + module.ModuleInfo.Name + ": " + moduleTaskbarIconText;
                 }
+            }
+            catch (Exception ex)
+            {
+                logger.Warning($"Модуль {module.ModuleInfo.Name}: ошибка GetTaskbarIconText: {ex.Message}");
             }
         }
 

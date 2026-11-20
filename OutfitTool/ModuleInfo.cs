@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,9 +17,8 @@ public class ModuleInfo : IModuleInfo
     public string DisplayName => "Outfit Tool";
     public string AssemblyName => "OutfitTool";
     public string Description => "Outfit Tool";
-    public ModuleVersion Version => new(3, 0, "release");
-    ModuleVersion IModuleInfo.Version => throw new NotImplementedException();
-    public string Changes => "3.0 release";
+    public ModuleVersion Version => new(3, 1, "release");
+    public string Changes => "3.1: стабильность обновления, настроек, модулей и hotkeys";
     public string Author => "Stolyarov Roman";
     public string AuthorContacts => "rshome@mail.ru";
     public int RequireApiVersion => 1;

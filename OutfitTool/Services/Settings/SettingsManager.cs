@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -7,39 +7,50 @@
  * (at your option) any later version.
  */
 using System.Collections;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text;
-using System.Text.RegularExpressions;
 using OutfitTool.ModulesAdapter;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
 namespace OutfitTool.Services.Settings;
 
+/// <summary>
+/// Настройки оболочки в %USERPROFILE%\OutfitTools\settings.yaml.
+/// Запись защищена межпроцессным mutex и выполняется атомарно, с backup.
+/// </summary>
 public class SettingsManager<T> where T : new()
 {
-    private class SettingsContainer
-    {
-        public Dictionary<string, object>? Groups { get; set; }
-    }
-    
     private readonly string _settingsFilePath;
+    private readonly string _backupFilePath;
     private readonly string _groupName;
     private T? _instance;
 
     public SettingsManager()
+        : this(null)
+    {
+    }
+
+    public SettingsManager(string? settingsDirectory)
     {
         _groupName = typeof(T).Name;
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        var settingsDirPath = Path.Combine(userProfile, "OutfitTools");
-        if (!Directory.Exists(settingsDirPath))
+        var directory = settingsDirectory;
+        if (string.IsNullOrWhiteSpace(directory))
         {
-            Directory.CreateDirectory(settingsDirPath);
+            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            directory = Path.Combine(userProfile, "OutfitTools");
         }
 
-        _settingsFilePath = Path.Combine(settingsDirPath, "settings.yaml");
+        if (!Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        _settingsFilePath = Path.Combine(directory, "settings.yaml");
+        _backupFilePath = _settingsFilePath + ".bak";
     }
 
     public T LoadSettings(bool force = false)
@@ -49,59 +60,8 @@ public class SettingsManager<T> where T : new()
             return _instance;
         }
 
-        if (!File.Exists(_settingsFilePath))
-        {
-            return new T(); // Возвращаем новый экземпляр со значениями по умолчанию
-        }
-
-        var yaml = File.ReadAllText(_settingsFilePath);
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .Build();
-
-        var allSettings = deserializer.Deserialize<SettingsContainer>(yaml);
-
-        // Если группа не найдена, возвращаем новый экземпляр со значениями по умолчанию
-        if (allSettings.Groups == null || !allSettings.Groups.TryGetValue(_groupName, out var groupSettings))
-        {
-            return new T();
-        }
-
-        var settings = new T();
-
-        if (groupSettings is Dictionary<object, object> settingsDict)
-        {
-            foreach (var field in typeof(T).GetFields(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (settingsDict.TryGetValue(ToCamelCase(field.Name), out var value))
-                {
-                    try
-                    {
-                        field.SetValue(settings, ConvertTo(value, field.FieldType));
-                    }
-                    catch
-                    {
-                        // ignored
-                    }
-                }
-            }
-
-            foreach (var property in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (settingsDict.TryGetValue(ToCamelCase(property.Name), out var value))
-                {
-                    try
-                    {
-                        property.SetValue(settings, ConvertTo(value, property.PropertyType));
-                    }
-                    catch
-                    {
-                        // ignored
-                    }
-                }
-            }
-        }
-
+        using var fileLock = SettingsFileLock.Acquire();
+        var settings = LoadFromDisk();
         _instance = settings;
         return settings;
     }
@@ -109,95 +69,235 @@ public class SettingsManager<T> where T : new()
     public void SaveSettings(T settings)
     {
         if (settings == null) return;
-        
+
+        using var fileLock = SettingsFileLock.Acquire();
+
+        var allSettings = LoadContainerFromDisk() ?? new SettingsContainer();
+        allSettings.Groups ??= new Dictionary<string, object>();
+        allSettings.Groups[_groupName] = settings;
+
         var serializer = new SerializerBuilder()
             .WithNamingConvention(CamelCaseNamingConvention.Instance)
             .Build();
 
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(CamelCaseNamingConvention.Instance)
-            .Build();
-
-        var allSettings = new SettingsContainer();
-
-        // Загружаем существующие настройки, если файл существует
-        if (File.Exists(_settingsFilePath))
-        {
-            var yaml = File.ReadAllText(_settingsFilePath);
-            allSettings = deserializer.Deserialize<SettingsContainer>(yaml);
-        }
-
-        // Создаем группу, если её нет
-        allSettings.Groups ??= new Dictionary<string, object>();
-
-        if (!allSettings.Groups.ContainsKey(_groupName))
-        {
-            allSettings.Groups[_groupName] = settings; // Сохраняем настройки
-        } else {
-            allSettings.Groups[_groupName] = settings; // Обновляем существующую группу
-        }
-
-        // Сериализуем и сохраняем настройки в файл
         var yamlOutput = serializer.Serialize(allSettings);
-        File.WriteAllText(_settingsFilePath, yamlOutput);
+        WriteAtomically(yamlOutput);
+        _instance = settings;
     }
 
-    private object? ConvertTo(object? value, Type type)
+    private T LoadFromDisk()
+    {
+        if (!File.Exists(_settingsFilePath) && !File.Exists(_backupFilePath))
+        {
+            return new T();
+        }
+
+        var allSettings = LoadContainerFromDisk();
+        if (allSettings?.Groups == null
+            || !allSettings.Groups.TryGetValue(_groupName, out var groupSettings))
+        {
+            return new T();
+        }
+
+        var settings = new T();
+        if (groupSettings is not Dictionary<object, object> settingsDict)
+        {
+            return settings;
+        }
+
+        foreach (var field in typeof(T).GetFields(BindingFlags.Public | BindingFlags.Instance))
+        {
+            var fieldName = CamelCaseNamingConvention.Instance.Apply(field.Name);
+            if (!settingsDict.TryGetValue(fieldName, out var value)) continue;
+
+            try
+            {
+                field.SetValue(settings, ConvertTo(value, field.FieldType));
+            }
+            catch
+            {
+                // Повреждено только это поле — оставляем значение по умолчанию.
+            }
+        }
+
+        foreach (var property in typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            var propertyName = CamelCaseNamingConvention.Instance.Apply(property.Name);
+            if (!settingsDict.TryGetValue(propertyName, out var value)) continue;
+
+            try
+            {
+                property.SetValue(settings, ConvertTo(value, property.PropertyType));
+            }
+            catch
+            {
+                // Повреждено только это поле.
+            }
+        }
+
+        return settings;
+    }
+
+    private SettingsContainer? LoadContainerFromDisk()
+    {
+        foreach (var path in new[] { _settingsFilePath, _backupFilePath })
+        {
+            if (!File.Exists(path)) continue;
+
+            try
+            {
+                var yaml = File.ReadAllText(path);
+                if (string.IsNullOrWhiteSpace(yaml)) continue;
+
+                var deserializer = new DeserializerBuilder()
+                    .WithNamingConvention(CamelCaseNamingConvention.Instance)
+                    .Build();
+
+                var container = deserializer.Deserialize<SettingsContainer>(yaml);
+                if (container?.Groups != null) return container;
+            }
+            catch
+            {
+                // Пробуем .bak; битый основной файл не блокирует запуск.
+            }
+        }
+
+        return null;
+    }
+
+    private void WriteAtomically(string yamlOutput)
+    {
+        var directory = Path.GetDirectoryName(_settingsFilePath)!;
+        Directory.CreateDirectory(directory);
+
+        var tempPath = Path.Combine(directory, ".settings." + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            File.WriteAllText(tempPath, yamlOutput, new UTF8Encoding(false));
+
+            if (File.Exists(_settingsFilePath))
+            {
+                try
+                {
+                    File.Replace(tempPath, _settingsFilePath, _backupFilePath, true);
+                }
+                catch (PlatformNotSupportedException)
+                {
+                    ReplaceFallback(tempPath);
+                }
+                catch (IOException)
+                {
+                    ReplaceFallback(tempPath);
+                }
+            }
+            else
+            {
+                File.Move(tempPath, _settingsFilePath);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { /* ignored */ }
+            }
+        }
+    }
+
+    private void ReplaceFallback(string tempPath)
+    {
+        if (File.Exists(_settingsFilePath))
+        {
+            File.Copy(_settingsFilePath, _backupFilePath, true);
+            File.Delete(_settingsFilePath);
+        }
+
+        File.Move(tempPath, _settingsFilePath);
+    }
+
+    private static object? ConvertTo(object? value, Type type)
     {
         if (value == null) return null;
 
-        if (type.IsArray || type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+        if (type == typeof(string)) return value.ToString();
+
+        if (type.IsArray)
         {
-            Type listItemType = type.GenericTypeArguments[0];
-            Type listType = typeof(List<>).MakeGenericType(listItemType);
-            var convertedValues = Activator.CreateInstance(listType) as IList;
+            var elementType = type.GetElementType() ?? typeof(object);
+            if (value is not IEnumerable enumerable) return null;
+
+            var items = new List<object?>();
+            foreach (var item in enumerable)
+            {
+                items.Add(ConvertTo(item, elementType));
+            }
+
+            var array = Array.CreateInstance(elementType, items.Count);
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (items[i] != null) array.SetValue(items[i], i);
+            }
+
+            return array;
+        }
+
+        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
+        {
+            var itemType = type.GenericTypeArguments[0];
+            var listType = typeof(List<>).MakeGenericType(itemType);
+            var convertedValues = (IList)Activator.CreateInstance(listType)!;
 
             if (value is IEnumerable enumerable)
             {
                 foreach (var item in enumerable)
                 {
-                    convertedValues?.Add(ConvertTo(item, listItemType));
+                    convertedValues.Add(ConvertTo(item, itemType));
                 }
+
                 return convertedValues;
             }
         }
 
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Dictionary<,>))
         {
-            var dictionaryKeyType = type.GenericTypeArguments[0];
-            var dictionaryValueType = type.GenericTypeArguments[1];
-            var dictionaryType = typeof(Dictionary<,>).MakeGenericType(dictionaryKeyType, dictionaryValueType);
-            var convertedValues = Activator.CreateInstance(dictionaryType) as IDictionary;
+            var keyType = type.GenericTypeArguments[0];
+            var valueType = type.GenericTypeArguments[1];
+            var dictionaryType = typeof(Dictionary<,>).MakeGenericType(keyType, valueType);
+            var convertedValues = (IDictionary)Activator.CreateInstance(dictionaryType)!;
+
             if (value is IEnumerable<KeyValuePair<object, object>> enumerable)
             {
                 foreach (var item in enumerable)
                 {
-                    var key = Convert.ChangeType(item.Key, dictionaryKeyType, System.Globalization.CultureInfo.InvariantCulture);
-                    var val = Convert.ChangeType(item.Value, dictionaryValueType, System.Globalization.CultureInfo.InvariantCulture);
-                    convertedValues?.Add(key, val);
+                    var key = Convert.ChangeType(item.Key, keyType, CultureInfo.InvariantCulture);
+                    var converted = ConvertTo(item.Value, valueType);
+                    convertedValues.Add(key, converted);
                 }
+
                 return convertedValues;
             }
         }
 
         var valueStr = value.ToString();
+        if (valueStr == null) return null;
+
+        if (typeof(IStringSerializable).IsAssignableFrom(type))
+        {
+            var instance = Activator.CreateInstance(type) as IStringSerializable;
+            return instance?.FromString(valueStr);
+        }
+
         try
         {
-            if (typeof(IStringSerializable).IsAssignableFrom(type) && valueStr != null)
-            {
-                var instance = Activator.CreateInstance(type) as IStringSerializable;
-                return instance?.FromString(valueStr);
-            }
-
             return Type.GetTypeCode(type) switch
             {
-                TypeCode.Boolean => valueStr is "1" or "true",
+                TypeCode.Boolean => valueStr == "1" || bool.TryParse(valueStr, out var boolean) && boolean,
                 TypeCode.String => valueStr,
-                TypeCode.Int32 => int.Parse(valueStr ?? "0"),
-                TypeCode.Single => float.Parse(valueStr ?? "0"),
-                TypeCode.Double => double.Parse(valueStr ?? "0"),
-                TypeCode.Decimal => decimal.Parse(valueStr ?? "0"),
-                TypeCode.DateTime => DateTime.Parse(valueStr ?? DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")),
+                TypeCode.Int32 => int.Parse(valueStr, CultureInfo.InvariantCulture),
+                TypeCode.Single => float.Parse(valueStr, CultureInfo.InvariantCulture),
+                TypeCode.Double => double.Parse(valueStr, CultureInfo.InvariantCulture),
+                TypeCode.Decimal => decimal.Parse(valueStr, CultureInfo.InvariantCulture),
+                TypeCode.DateTime => DateTime.Parse(valueStr, CultureInfo.InvariantCulture),
                 _ => value
             };
         }
@@ -207,39 +307,79 @@ public class SettingsManager<T> where T : new()
         }
     }
 
-    private static string ToCamelCase(string input)
+    private class SettingsContainer
     {
-        if (string.IsNullOrEmpty(input))
-            return input;
-
-        // Разбиваем строку на слова: по разделителям ИЛИ по заглавным буквам
-        string pattern = @"[^a-zA-Z0-9]+|(?<!^)(?=[A-Z])";
-        string[] words = Regex.Split(input, pattern);
-    
-        StringBuilder result = new StringBuilder();
-        bool firstWord = true;
-    
-        foreach (string word in words)
-        {
-            if (string.IsNullOrEmpty(word))
-                continue;
-            
-            if (firstWord)
-            {
-                result.Append(word.ToLower());
-                firstWord = false;
-            }
-            else
-            {
-                result.Append(char.ToUpper(word[0]));
-                if (word.Length > 1)
-                    result.Append(word.Substring(1).ToLower());
-            }
-        }
-    
-        return result.ToString();
+        public Dictionary<string, object>? Groups { get; set; }
     }
-
 }
 
+/// <summary>
+/// Межпроцессная блокировка settings.yaml, общая для оболочки и API-модулей.
+/// </summary>
+internal sealed class SettingsFileLock : IDisposable
+{
+    private const string MutexName = @"Local\OutfitTool.Settings";
+    private static readonly object ThreadLock = new();
 
+    private readonly Mutex _mutex;
+    private bool _hasMutex;
+    private bool _hasThreadLock;
+
+    private SettingsFileLock(Mutex mutex)
+    {
+        _mutex = mutex;
+    }
+
+    public static SettingsFileLock Acquire(TimeSpan? timeout = null)
+    {
+        var mutex = new Mutex(false, MutexName);
+        Monitor.Enter(ThreadLock);
+
+        try
+        {
+            bool acquired;
+            try
+            {
+                acquired = mutex.WaitOne(timeout ?? TimeSpan.FromSeconds(10));
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+            }
+
+            if (!acquired)
+            {
+                throw new TimeoutException("Не удалось получить блокировку settings.yaml.");
+            }
+
+            return new SettingsFileLock(mutex)
+            {
+                _hasMutex = true,
+                _hasThreadLock = true
+            };
+        }
+        catch
+        {
+            Monitor.Exit(ThreadLock);
+            mutex.Dispose();
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_hasMutex)
+        {
+            _mutex.ReleaseMutex();
+            _hasMutex = false;
+        }
+
+        if (_hasThreadLock)
+        {
+            Monitor.Exit(ThreadLock);
+            _hasThreadLock = false;
+        }
+
+        _mutex.Dispose();
+    }
+}

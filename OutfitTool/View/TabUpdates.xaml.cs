@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -92,13 +92,33 @@ public partial class TabUpdates
     {
         var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
         var settings = settingsManager.LoadSettings();
-        settings.UpdatesRepository = updatesRepository.Text;
+
+        var repository = updatesRepository.Text.Trim();
+        if (string.IsNullOrWhiteSpace(repository))
+        {
+            updatesRepository.Text = settings.UpdatesRepository;
+            return;
+        }
+
+        if (!Uri.TryCreate(repository, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttps
+                && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)))
+        {
+            MessageBox.Show(
+                "Укажите HTTPS-адрес репозитория обновлений.",
+                "Некорректный адрес",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            updatesRepository.Text = settings.UpdatesRepository;
+            return;
+        }
+
+        settings.UpdatesRepository = repository;
         settingsManager.SaveSettings(settings);
-        ApplySettings();
     }
 
     private bool _autoReadListDone;
-    private void updatesRepository_Loaded(object sender, RoutedEventArgs e)
+    private async void updatesRepository_Loaded(object sender, RoutedEventArgs e)
     {
         UpdateRepositorySettingsControl();
 
@@ -107,12 +127,12 @@ public partial class TabUpdates
         var updatesManager = ServiceLocator.GetService<IUpdatesManagerInterface>();
         if (!_autoReadListDone && settings.CheckUpdatesOnStart)
         {
-            updatesManager.LoadList(UpdateManagerStatusChanged);
             _autoReadListDone = true;
+            await updatesManager.LoadListAsync(UpdateManagerStatusChanged);
         }
         if (settings.InstallUpdates)
         {
-            updatesManager.UpdateAll();
+            await updatesManager.UpdateAllAsync();
         }
     }
 
@@ -128,10 +148,10 @@ public partial class TabUpdates
         }
     }
 
-    private void updateRepositoryList_Click(object sender, RoutedEventArgs e)
+    private async void updateRepositoryList_Click(object sender, RoutedEventArgs e)
     {
         var updatesManager = ServiceLocator.GetService<IUpdatesManagerInterface>();
-        updatesManager.LoadList(UpdateManagerStatusChanged);
+        await updatesManager.LoadListAsync(UpdateManagerStatusChanged);
     }
 
     private void Update_Click(object sender, RoutedEventArgs e)

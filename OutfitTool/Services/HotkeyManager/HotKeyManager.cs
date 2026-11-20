@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,118 +22,208 @@ public class HotKeyManager(SettingsManager<AppSettings> settingsManager)
     {
         _hotKeyRegisterService = new HotKeyRegisterService(windowHandle);
 
-        var settingHotKeys = settingsManager.LoadSettings().HotKeys.ToDictionary();
+        var settings = settingsManager.LoadSettings();
+        var settingHotKeys = settings.HotKeys?.ToDictionary() ?? new Dictionary<string, string>();
 
         foreach (var (commandString, hotKey) in settingHotKeys)
         {
-            var moduleManager = ServiceLocator.GetService<IModuleManager>();
-            var commandDescriptor = moduleManager.GetCommandDescriptor(commandString);
-            var key = HotKey.FromString(hotKey);
-            if (key == null || commandDescriptor == null) continue;
-            var logger = ServiceLocator.GetService<ILogger>();
-            logger.Info("Регистрация горячей клавиши " + key);
-            ClearKey(commandDescriptor);
-            RegisterKey(commandDescriptor, key);
+            try
+            {
+                var moduleManager = ServiceLocator.GetService<IModuleManager>();
+                var commandDescriptor = moduleManager.GetCommandDescriptor(commandString);
+                var key = HotKey.FromString(hotKey);
+
+                if (key == null || commandDescriptor == null)
+                {
+                    ServiceLocator.GetService<ILogger>().Warning(
+                        $"Пропущена горячая клавиша '{commandString}': команда или комбинация не найдены.");
+                    continue;
+                }
+
+                ServiceLocator.GetService<ILogger>().Info("Регистрация горячей клавиши " + key);
+                if (!_hotKeyRegisterService.Register(key))
+                {
+                    ServiceLocator.GetService<ILogger>().Warning(
+                        $"Горячая клавиша {key} уже зарегистрирована; команда '{commandString}' пропущена.");
+                }
+            }
+            catch (Exception ex)
+            {
+                ServiceLocator.GetService<ILogger>().Error(
+                    $"Ошибка регистрации горячей клавиши '{commandString}': {ex.Message}");
+            }
         }
     }
 
-
-    public void RegisterKey(CommandDescriptor commandDescriptor, HotKey key)
+    /// <summary>
+    /// Назначает комбинацию команде. Возвращает false, если комбинация занята или сохранение не удалось.
+    /// </summary>
+    public bool RegisterKey(CommandDescriptor commandDescriptor, HotKey key)
     {
+        return RegisterKeyInternal(commandDescriptor, key, saveSettings: true);
+    }
+
+    private bool RegisterKeyInternal(CommandDescriptor commandDescriptor, HotKey key, bool saveSettings)
+    {
+        if (_hotKeyRegisterService == null)
+        {
+            throw new InvalidOperationException("Сервис горячих клавиш не инициализирован.");
+        }
+
         var settings = settingsManager.LoadSettings();
+        settings.HotKeys ??= new Dictionary<string, string>();
+
+        var commandString = commandDescriptor.ToString();
+        var previousKey = GetKey(commandDescriptor);
 
         try
         {
-            if (_hotKeyRegisterService == null) throw new Exception("Registration hotkey error");
-            _hotKeyRegisterService.Register(key);
-            settings.HotKeys.Remove(commandDescriptor.ToString());
-            settings.HotKeys.Add(commandDescriptor.ToString(), key.ToString());
-            settingsManager.SaveSettings(settings);
+            // Сначала снимаем старую комбинацию этой же команды, чтобы не держать её в ОС.
+            if (previousKey != null)
+            {
+                _hotKeyRegisterService.Unregister(previousKey);
+            }
+
+            if (!_hotKeyRegisterService.Register(key))
+            {
+                ShowError($"Горячая клавиша {key} уже назначена другой команде.");
+                RestorePreviousKey(commandDescriptor, previousKey);
+                return false;
+            }
+
+            RemoveCommandEntries(settings, commandDescriptor);
+            settings.HotKeys[commandString] = key.ToString();
+
+            if (saveSettings)
+            {
+                try
+                {
+                    settingsManager.SaveSettings(settings);
+                }
+                catch
+                {
+                    _hotKeyRegisterService.Unregister(key);
+                    RestorePreviousKey(commandDescriptor, previousKey);
+                    throw;
+                }
+            }
+
+            return true;
         }
-        catch (Exception e) {
-            MessageBox.Show(e.Message, "Ошибка регистрации горячих клавиш", MessageBoxButton.OK, MessageBoxImage.Exclamation);
+        catch (Exception ex)
+        {
+            RestorePreviousKey(commandDescriptor, previousKey);
+            ServiceLocator.GetService<ILogger>().Error($"Ошибка назначения горячей клавиши {key}: {ex.Message}");
+            ShowError(ex.Message);
+            return false;
         }
     }
 
     public void ClearKey(CommandDescriptor commandDescriptor)
     {
-        if (_hotKeyRegisterService == null) throw new Exception("Clear hotkey error");
+        if (_hotKeyRegisterService == null)
+        {
+            throw new InvalidOperationException("Сервис горячих клавиш не инициализирован.");
+        }
 
         var settings = settingsManager.LoadSettings();
+        settings.HotKeys ??= new Dictionary<string, string>();
+
         var key = GetKey(commandDescriptor);
         if (key != null)
         {
             _hotKeyRegisterService.Unregister(key);
-            settings.HotKeys.Remove(commandDescriptor.ToString());
         }
+
+        RemoveCommandEntries(settings, commandDescriptor);
         settingsManager.SaveSettings(settings);
     }
 
     public void ClearAllKeys()
     {
-        if (_hotKeyRegisterService == null) throw new Exception("Clear hotkey error");
-
-        var settings = settingsManager.LoadSettings();
-        foreach (var entry in settings.HotKeys)
-        {
-            var hotKey = HotKey.FromString(entry.Value.Trim());
-            if(hotKey != null){
-                _hotKeyRegisterService.Unregister(hotKey);
-            }
-        }
+        if (_hotKeyRegisterService == null) return;
+        _hotKeyRegisterService.UnregisterAll();
     }
-
 
     public HotKey? GetKey(CommandDescriptor command)
     {
-        AppSettings settings = settingsManager.LoadSettings();
+        var settings = settingsManager.LoadSettings();
+        if (settings.HotKeys == null) return null;
 
         foreach (var entry in settings.HotKeys)
         {
-            var commandString = entry.Key.Trim();
-            var hotKeyString = entry.Value.Trim();
-
-            if (command.ToString() == commandString)
+            if (command.Matches(entry.Key))
             {
-                return HotKey.FromString(hotKeyString);
+                return HotKey.FromString(entry.Value.Trim());
             }
-
         }
+
         return null;
     }
 
-
     public void HotKeyPressed(int hotKeyId)
     {
-        var settings = settingsManager.LoadSettings();
         var key = _hotKeyRegisterService?.GetById(hotKeyId);
+        if (key == null) return;
 
-        if (key == null)
-        {
-            return;
-        }
+        var settings = settingsManager.LoadSettings();
+        if (settings.HotKeys == null) return;
 
         string? commandString = null;
-
-        foreach(KeyValuePair<string, string> entry in settings.HotKeys)
+        foreach (var entry in settings.HotKeys)
         {
-            if (entry.Value == key.ToString())
+            if (string.Equals(entry.Value.Trim(), key.ToString(), StringComparison.Ordinal))
             {
                 commandString = entry.Key.Trim();
+                break;
             }
         }
 
-        if (commandString == null)
+        if (commandString == null) return;
+
+        try
         {
-            return;
+            IModuleManager moduleManager = ServiceLocator.GetService<IModuleManager>();
+            CommandDescriptor? command = moduleManager.GetCommandDescriptor(commandString);
+            command?.Command.Run();
+        }
+        catch (Exception ex)
+        {
+            ServiceLocator.GetService<ILogger>().Error(
+                $"Ошибка выполнения команды по горячей клавише '{commandString}': {ex}");
+        }
+    }
+
+    private void RestorePreviousKey(CommandDescriptor commandDescriptor, HotKey? previousKey)
+    {
+        var settings = settingsManager.LoadSettings();
+        settings.HotKeys ??= new Dictionary<string, string>();
+
+        RemoveCommandEntries(settings, commandDescriptor);
+
+        if (previousKey != null)
+        {
+            settings.HotKeys[commandDescriptor.ToString()] = previousKey.ToString();
+            try { _hotKeyRegisterService?.Register(previousKey); } catch { /* ignored */ }
         }
 
-        IModuleManager moduleManager = ServiceLocator.GetService<IModuleManager>();
-        CommandDescriptor? command = moduleManager.GetCommandDescriptor(commandString);
+        try { settingsManager.SaveSettings(settings); } catch { /* ignored */ }
+    }
 
-        if (command != null)
+    private static void RemoveCommandEntries(AppSettings settings, CommandDescriptor commandDescriptor)
+    {
+        if (settings.HotKeys == null) return;
+
+        foreach (var key in settings.HotKeys.Keys
+                     .Where(existing => commandDescriptor.Matches(existing))
+                     .ToList())
         {
-            command.Command.Run();
+            settings.HotKeys.Remove(key);
         }
+    }
+
+    private static void ShowError(string message)
+    {
+        MessageBox.Show(message, "Ошибка регистрации горячих клавиш", MessageBoxButton.OK, MessageBoxImage.Exclamation);
     }
 }

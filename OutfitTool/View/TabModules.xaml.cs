@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -55,18 +55,22 @@ public partial class TabModules
 
         if (moduleList.SelectedItem is ListViewModuleItem selectedModule)
         {
-            selectedModule.Module.Enabled = !selectedModule.Module.Enabled;
+            var module = selectedModule.Module;
+            var enable = !module.Enabled;
+            module.Enabled = enable;
 
             var settings = settingsManager.LoadSettings();
+            settings.EnabledModules ??= new List<string>();
 
-            if (selectedModule.Module.Enabled)
-            {
-                settings.EnabledModules.Add(selectedModule.Module.AssemblyName);
-            }
-            else
-            {
-                settings.EnabledModules.Remove(selectedModule.Module.AssemblyName);
-            }
+            // В старых settings.yaml хранились ModuleInfo.Name ("calculator"),
+            // а не AssemblyName ("Calculator"). Удаляем оба варианта, иначе
+            // LoadModules снова включит модуль по legacy-имени.
+            ModuleEnablement.SetEnabled(
+                settings.EnabledModules,
+                module.AssemblyName,
+                module.ModuleInfo.Name,
+                enable);
+
             settingsManager.SaveSettings(settings);
 
             InitModules();
@@ -78,15 +82,23 @@ public partial class TabModules
     {
         var settingsManager = ServiceLocator.GetService<SettingsManager<AppSettings>>();
         var moduleManager = ServiceLocator.GetService<IModuleManager>();
+        var logger = ServiceLocator.GetService<ILogger>();
 
         // Инициализация модулей
         var settings = settingsManager.LoadSettings();
         moduleManager.LoadModules(settings.EnabledModules);
         foreach (Module module in moduleManager.GetModules())
         {
-            if (module.Enabled)
+            if (!module.Enabled) continue;
+
+            try
             {
-                module.ModuleController.Init(ServiceLocator.GetService<ILogger>());
+                module.ModuleController.Init(logger);
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"Не удалось инициализировать модуль {module.ModuleInfo.Name}: {ex}");
+                module.Enabled = false;
             }
         }
     }
@@ -119,6 +131,18 @@ public partial class TabModules
                 }
             }
         }
+
+        if (moduleManager is ModuleManager concreteManager && concreteManager.LoadErrors.Count > 0)
+        {
+            loadErrorsText.Text = string.Join(Environment.NewLine, concreteManager.LoadErrors);
+            loadErrorsText.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            loadErrorsText.Text = "";
+            loadErrorsText.Visibility = Visibility.Collapsed;
+        }
+
         MainWindow.Instance?.InitInterface();
     }
 

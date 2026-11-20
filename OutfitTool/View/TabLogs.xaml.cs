@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -19,6 +19,10 @@ namespace OutfitTool.View;
 public partial class TabLogs : UserControl
 {
     private const bool LogInFile = true;
+    private const long MaxLogFileSize = 5 * 1024 * 1024;
+    private static readonly object LogFileLock = new();
+    private static readonly string LogFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Outfit.log");
+
     public TabLogs()
     {
         InitializeComponent();
@@ -33,15 +37,39 @@ public partial class TabLogs : UserControl
     private void LogHandler(object? sender, LogEntry logEntry)
     {
         string message = logEntry.LogDateTime.ToString() + " " + logEntry.Level.ToString() + ": " + logEntry.Message;
-        this.Dispatcher.Invoke(() => {
-            logsBlock.Text += message + "\r\n";
-        });
+        try
+        {
+            this.Dispatcher.Invoke(() => {
+                logsBlock.Text += message + "\r\n";
+            });
+        }
+        catch
+        {
+            // Окно логов может быть уже закрыто при завершении приложения.
+        }
     }
 
     private void LogFileHandler(object? sender, LogEntry logEntry)
     {
-        var file = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Outfit.log");
         string message = logEntry.LogDateTime.ToString() + " " + logEntry.Level.ToString() + ": " + logEntry.Message;
-        File.WriteAllTextAsync(file, message);
+
+        lock (LogFileLock)
+        {
+            try
+            {
+                if (File.Exists(LogFilePath) && new FileInfo(LogFilePath).Length > MaxLogFileSize)
+                {
+                    var oldPath = LogFilePath + ".old";
+                    File.Copy(LogFilePath, oldPath, true);
+                    File.WriteAllText(LogFilePath, string.Empty);
+                }
+
+                File.AppendAllText(LogFilePath, message + Environment.NewLine);
+            }
+            catch
+            {
+                // Логирование не должно ронять приложение.
+            }
+        }
     }
 }

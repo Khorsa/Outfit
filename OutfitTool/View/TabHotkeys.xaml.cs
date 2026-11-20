@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -58,8 +58,16 @@ public partial class TabHotkeys
         var descriptor = new CommandDescriptor(lvi.Module, lvi.Command);
         if (key != null)
         {
-            hotKeyManager.RegisterKey(descriptor, key);
-            lvi.HotKey = key.ToString();
+            if (hotKeyManager.RegisterKey(descriptor, key))
+            {
+                lvi.HotKey = key.ToString();
+            }
+            else
+            {
+                // Регистрация не удалась: показываем фактическую сохранённую комбинацию.
+                var current = hotKeyManager.GetKey(descriptor);
+                lvi.HotKey = current?.ToString() ?? "";
+            }
         }
 
         var list = moduleCommandList.ItemsSource;

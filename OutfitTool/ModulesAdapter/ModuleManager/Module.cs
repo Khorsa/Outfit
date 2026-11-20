@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -6,15 +6,40 @@
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  */
+using System.Runtime.Loader;
+
 namespace OutfitTool.ModulesAdapter.ModuleManager;
 
 public class Module(
     string assemblyName,
     IModuleInfo moduleInfo,
-    IModuleController moduleController)
+    IModuleController moduleController,
+    AssemblyLoadContext? loadContext = null)
 {
     public IModuleInfo ModuleInfo { get; } = moduleInfo;
     public IModuleController ModuleController { get; } = moduleController;
     public string AssemblyName { get; } = assemblyName;
     public bool Enabled { get; set; }
+    public AssemblyLoadContext? LoadContext { get; } = loadContext;
+
+    public void Unload()
+    {
+        try
+        {
+            ModuleController.Shutdown();
+        }
+        catch
+        {
+            // Модуль мог быть уже выгружен/сломан; контекст всё равно пробуем освободить.
+        }
+
+        try
+        {
+            LoadContext?.Unload();
+        }
+        catch
+        {
+            // Unload не бросает наружу, но на всякий случай не ломаем загрузку остальных.
+        }
+    }
 }

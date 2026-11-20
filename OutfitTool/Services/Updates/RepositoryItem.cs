@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -24,6 +24,12 @@ public class RepositoryItem
     public string Author { get; set; }
     public string AuthorContacts { get; set; }
 
+    public string Sha256 { get; set; }
+
+    public string Signature { get; set; }
+
+    public string PublicKey { get; set; }
+
     public string Url { get; set; }
 
     public RepositoryItem()
@@ -39,6 +45,9 @@ public class RepositoryItem
         Author = "";
         AuthorContacts = "";
         AssemblyName = "";
+        Sha256 = "";
+        Signature = "";
+        PublicKey = "";
     }
 
     public override string ToString()

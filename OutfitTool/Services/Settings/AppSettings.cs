@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,6 +18,7 @@ public class AppSettings
     public bool LoadOnSystemStart = true;
     public bool CheckUpdatesOnStart = true;
     public string UpdatesRepository = "https://outfit-tool.ru/repository.yaml";
+    public string UpdatesPublicKey = ""; // PEM: закреплённый публичный ключ для подписи пакетов
     public bool InstallUpdates = false;
     public Dictionary<string,string> HotKeys { get; set; } = new();  // setter is needed and is used in SettingsManager
 

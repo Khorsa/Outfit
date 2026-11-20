@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -41,9 +41,16 @@ namespace Start
 
         private void _Log(string level, string message)
         {
-            File.AppendAllLines(this._fileName, new List<string> {
-                DateTime.Now.ToString() + " "+level+" " + message
-            });
+            try
+            {
+                File.AppendAllLines(this._fileName, new List<string> {
+                    DateTime.Now.ToString() + " "+level+" " + message
+                });
+            }
+            catch
+            {
+                // Логирование не должно мешать запуску приложения.
+            }
         }
     }
 }

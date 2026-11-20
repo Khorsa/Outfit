@@ -1,518 +1,811 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.IO;
+using System.Text.RegularExpressions;
 using OutfitTool.ModulesAdapter.Logger;
 
 namespace OutfitTool.Services.Updates;
 
 /// <summary>
-/// Класс для самообновления программы
+/// Самообновление приложения.
+///
+/// Инварианты:
+///  - апдейтер всегда работает с явно переданным каталогом установки, а не с BaseDirectory;
+///  - новый файл-набор сначала собирается в staging и проверяется;
+///  - текущая установка переименовывается в backup, только затем staging становится установкой;
+///  - при любой ошибке выполняется попытка отката, процесс не завершается «в никуда».
 /// </summary>
 public class FilesUpdater
 {
+    private const string MainProcessName = "OutfitTool";
+    private const int WaitForExitTimeoutSeconds = 30;
+    private const int RetryDelayMs = 200;
+    private const int MaxRetryAttempts = 150;
+
     private readonly ILogger _logger;
-    private readonly string _appDirectory;
+    private readonly string _installDirectory;
     private readonly string _cacheDirectory;
+    private readonly string _stagingRoot;
+    private readonly string _backupRoot;
     private readonly string _updatesDirectory;
     private readonly string _modulesDirectory;
     private readonly string _mainExePath;
-    private readonly string _mainProcessName;
-    
-    // Конфигурация
-    private const int WAIT_FOR_EXIT_TIMEOUT_SECONDS = 30;
-    private const int RETRY_DELAY_MS = 200;
-    private const int MAX_RETRY_ATTEMPTS = 150;
-    
-    // Файлы и папки, которые нужно копировать в cache
-    private readonly List<string> _filesToCopy =
-    [
-        "OutfitTool.exe",
-        "OutfitTool.runtimeconfig.json"
-        // Добавьте сюда все файлы, которые нужны для работы апдейтера (dll рядом с exe скопируются сами)
-    ];
-    
-    // Файлы/папки, которые нельзя удалять при очистке основной директории
-    private readonly List<string> _protectedItems =
-    [
-        "modules",
-        "updates",
-        "settings.yaml",
-        "logs",
-        "update_cache"
-    ];
 
-    public FilesUpdater(ILogger logger)
+    private static readonly Regex SafeNameRegex = new(
+        @"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private string? _lastMainBackup;
+
+    public FilesUpdater(ILogger logger, string? installDirectory = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-        _cacheDirectory = Path.Combine(_appDirectory, "update_cache");
-        _updatesDirectory = Path.Combine(_appDirectory, "updates");
-        _modulesDirectory = Path.Combine(_appDirectory, "modules");
-        _mainExePath = Path.Combine(_appDirectory, "OutfitTool.exe");
-        _mainProcessName = "OutfitTool";
+
+        _installDirectory = NormalizeDirectory(installDirectory ?? AppContext.BaseDirectory);
+        _updatesDirectory = Path.Combine(_installDirectory, "updates");
+        _modulesDirectory = Path.Combine(_installDirectory, "modules");
+        _mainExePath = Path.Combine(_installDirectory, "OutfitTool.exe");
+        _cacheDirectory = Path.Combine(Path.GetTempPath(), "OutfitTool", "update_cache");
+
+        var parent = Directory.GetParent(_installDirectory)?.FullName
+                     ?? Path.GetTempPath();
+        _stagingRoot = Path.Combine(parent, ".outfittool-staging");
+        _backupRoot = Path.Combine(parent, ".outfittool-backup");
     }
 
     /// <summary>
-    /// Метод 1: Перезапуск программы с обновлением
+    /// Запускает копию обновлятора и завершает текущий процесс.
     /// </summary>
-    /// <param name="modulesToDelete">Список модулей для удаления</param>
-    /// <param name="mainAppParameters">Параметры для передачи основной программе после обновления</param>
     public void Restart(List<string> modulesToDelete, Dictionary<string, string>? mainAppParameters = null)
     {
         _logger.Info("=== Начало процесса обновления ===");
-        
+
         try
         {
-            // 1. Создаём кэш директорию
-            CreateCacheDirectory();
-            
-            // 2. Копируем необходимые файлы в кэш
-            CopyFilesToCache();
-            
-            // 3. Формируем параметры для запуска копии
-            string arguments = BuildUpdateArguments(modulesToDelete, mainAppParameters);
-            
-            // 4. Запускаем копию программы
-            string cacheExePath = Path.Combine(_cacheDirectory, "OutfitTool.exe");
+            PrepareBootstrap();
+
             var startInfo = new ProcessStartInfo
             {
-                FileName = cacheExePath,
-                Arguments = arguments,
-                UseShellExecute = true,
-                WorkingDirectory = _cacheDirectory
+                FileName = Path.Combine(_cacheDirectory, "OutfitTool.exe"),
+                WorkingDirectory = _cacheDirectory,
+                UseShellExecute = false,
+                CreateNoWindow = true
             };
-            
-            _logger.Info($"Запуск копии программы: {cacheExePath} {arguments}");
-            Process.Start(startInfo);
-            
-            // 5. Завершаем текущую программу
-            _logger.Info("Завершение текущего экземпляра программы");
+
+            foreach (var argument in BuildUpdateArguments(modulesToDelete, mainAppParameters))
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
+
+            _logger.Info($"Запуск копии обновлятора: {startInfo.FileName} {string.Join(" ", startInfo.ArgumentList)}");
+            var process = Process.Start(startInfo)
+                          ?? throw new InvalidOperationException("Не удалось запустить копию обновлятора.");
+
+            // Даём копии время стартовать. Если она сразу упала — не убиваем текущий процесс.
+            Thread.Sleep(1500);
+            if (process.HasExited)
+            {
+                throw new InvalidOperationException(
+                    $"Копия обновлятора завершилась с кодом {process.ExitCode}. Обновление отменено.");
+            }
+
+            _logger.Info("Копия обновлятора запущена, завершение текущего экземпляра.");
             Environment.Exit(0);
         }
         catch (Exception ex)
         {
-            _logger.Error($"Ошибка при подготовке к обновлению: {ex.Message}");
+            _logger.Error($"Ошибка при подготовке к обновлению: {ex}");
             throw;
         }
     }
 
     /// <summary>
-    /// Метод 2: Выполнение обновления (запускается из копии с параметром --update)
+    /// Выполняет обновление из копии, запущенной с --update --install-dir=...
     /// </summary>
-    /// <param name="modulesToDelete">Список модулей для удаления</param>
-    /// <param name="mainAppParameters">Параметры для передачи основной программе после обновления</param>
-    public void Update(List<string> modulesToDelete, Dictionary<string, string>? mainAppParameters = null)
+    /// <returns>true — обновление применено и новая версия запущена; false — ошибка, нужен откат/сообщение.</returns>
+    public bool Update(List<string> modulesToDelete, Dictionary<string, string>? mainAppParameters = null)
     {
         _logger.Info("=== Запущен режим обновления ===");
-        
+
         try
         {
-            // 1. Ожидаем закрытия основной программы
-            WaitForMainProgramExit();
-            
-            // 2. Удаляем указанные модули
-            DeleteModules(modulesToDelete);
-            
-            // 3. Обрабатываем обновления из папки updates
-            ProcessUpdatesDirectory();
-            
-            // 4. Запускаем обновлённую программу с переданными параметрами
-            RestartMainProgram(mainAppParameters);
-            
+            if (!WaitForMainProgramExit())
+            {
+                throw new TimeoutException("Основная программа не завершилась за отведённое время.");
+            }
+
+            if (!DeleteModules(modulesToDelete))
+            {
+                throw new IOException("Не удалось удалить один или несколько модулей.");
+            }
+
+            if (!ProcessUpdatesDirectory())
+            {
+                throw new IOException("Не удалось применить обновления.");
+            }
+
+            if (!RestartMainProgram(mainAppParameters))
+            {
+                throw new InvalidOperationException("Не удалось запустить обновлённую программу.");
+            }
+
             _logger.Info("=== Обновление успешно завершено ===");
+            return true;
         }
         catch (Exception ex)
         {
-            _logger.Error($"Ошибка в режиме обновления: {ex.Message}");
-            throw;
-        }
-        finally
-        {
-            Environment.Exit(0);
+            _logger.Error($"Ошибка в режиме обновления: {ex}");
+
+            // Если основной модуль уже был заменён, но новая версия не стартовала — возвращаем backup.
+            if (_lastMainBackup != null && Directory.Exists(_lastMainBackup))
+            {
+                _logger.Warning("Попытка отката основной программы из backup...");
+                if (RollbackMainModule())
+                {
+                    _logger.Info("Откат основной программы выполнен.");
+                }
+                else
+                {
+                    _logger.Error("Откат основной программы не удался.");
+                }
+            }
+
+            return false;
         }
     }
 
     /// <summary>
-    /// Очистка кэш директории при запуске основной программы
+    /// Удаляет временные каталоги обновления. Вызывается при обычном старте приложения.
     /// </summary>
     public void CleanupCache()
     {
-        if (Directory.Exists(_cacheDirectory))
+        var updateInProgress = IsAnyProcessRunningFrom(_cacheDirectory);
+
+        // Нельзя удалять каталог, из которого сейчас работает процесс.
+        if (!updateInProgress
+            && !PathsEqual(AppContext.BaseDirectory, _cacheDirectory))
+        {
+            TryDeleteDirectory(_cacheDirectory);
+        }
+
+        // Идёт обновление из кэша — не трогаем staging/backup, они ещё нужны.
+        if (updateInProgress) return;
+
+        // Совместимость со старыми версиями: кэш лежал внутри каталога установки.
+        var legacyCache = Path.Combine(_installDirectory, "update_cache");
+        if (!IsAnyProcessRunningFrom(legacyCache))
+        {
+            TryDeleteDirectory(legacyCache);
+        }
+
+        if (IsAnyProcessRunningFrom(_stagingRoot) || IsAnyProcessRunningFrom(_backupRoot))
+        {
+            return;
+        }
+
+        CleanupOldDirectories(_stagingRoot, TimeSpan.FromDays(2));
+        CleanupOldDirectories(_backupRoot, TimeSpan.FromDays(30), keepNewest: true);
+    }
+
+    private static bool IsAnyProcessRunningFrom(string directory)
+    {
+        if (!Directory.Exists(directory)) return false;
+
+        foreach (var process in Process.GetProcessesByName(MainProcessName))
         {
             try
             {
-                _logger.Info($"Очистка кэш директории: {_cacheDirectory}");
-                Directory.Delete(_cacheDirectory, true);
+                var path = process.MainModule?.FileName;
+                if (path != null && IsPathUnder(directory, path))
+                {
+                    return true;
+                }
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.Warning($"Не удалось очистить кэш: {ex.Message}");
+                // Не можем прочитать путь — не удаляем каталог на всякий случай.
+                return true;
+            }
+            finally
+            {
+                process.Dispose();
             }
         }
+
+        return false;
     }
 
-    #region Приватные методы для Restart
+    #region Подготовка bootstrap-копии
 
-    private void CreateCacheDirectory()
+    private void PrepareBootstrap()
     {
+        if (PathsEqual(_installDirectory, _cacheDirectory))
+        {
+            throw new InvalidOperationException(
+                "Каталог установки совпадает с временным каталогом обновления. Проверьте аргумент --install-dir.");
+        }
+
         if (Directory.Exists(_cacheDirectory))
         {
-            _logger.Info($"Удаление старой кэш директории: {_cacheDirectory}");
             Directory.Delete(_cacheDirectory, true);
         }
-        
-        _logger.Info($"Создание кэш директории: {_cacheDirectory}");
+
         Directory.CreateDirectory(_cacheDirectory);
-    }
 
-    private void CopyFilesToCache()
-    {
-        _logger.Info("Копирование файлов в кэш...");
-        
-        foreach (string filePattern in _filesToCopy)
+        var excludedAtRoot = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            string sourcePath = Path.Combine(_appDirectory, filePattern);
-            string destPath = Path.Combine(_cacheDirectory, filePattern);
-            
-            if (File.Exists(sourcePath))
+            "modules",
+            "updates",
+            "logs",
+            "settings.yaml",
+            "update_cache",
+            ".outfittool-staging",
+            ".outfittool-backup"
+        };
+
+        CopyDirectory(_installDirectory, _cacheDirectory, excludedAtRoot);
+
+        foreach (var required in new[]
+                 {
+                     "OutfitTool.exe",
+                     "OutfitTool.dll",
+                     "OutfitTool.runtimeconfig.json",
+                     "OutfitTool.deps.json"
+                 })
+        {
+            var path = Path.Combine(_cacheDirectory, required);
+            if (!File.Exists(path))
             {
-                File.Copy(sourcePath, destPath, true);
-                _logger.Info($"Скопирован: {filePattern}");
-            }
-            else
-            {
-                _logger.Warning($"Файл не найден: {filePattern}");
+                throw new FileNotFoundException(
+                    $"В каталоге установки отсутствует обязательный файл '{required}'.", path);
             }
         }
-        
-        // Копируем также все DLL из корневой директории
-        var dllFiles = Directory.GetFiles(_appDirectory, "*.dll");
-        foreach (var dll in dllFiles)
-        {
-            string fileName = Path.GetFileName(dll);
-            string destPath = Path.Combine(_cacheDirectory, fileName);
-            File.Copy(dll, destPath, true);
-            _logger.Info($"Скопирован DLL: {fileName}");
-        }
+
+        _logger.Info($"Bootstrap-копия подготовлена: {_cacheDirectory}");
     }
 
-    private string BuildUpdateArguments(List<string> modulesToDelete, Dictionary<string, string>? mainAppParameters)
+    private List<string> BuildUpdateArguments(
+        List<string> modulesToDelete,
+        Dictionary<string, string>? mainAppParameters)
     {
-        var args = new List<string> { "--update" };
-        
-        // Добавляем модули для удаления
+        var arguments = new List<string>
+        {
+            "--update",
+            $"--install-dir={_installDirectory}"
+        };
+
         foreach (var module in modulesToDelete)
         {
-            args.Add($"delete_module={module}");
+            if (!IsSafeName(module))
+            {
+                _logger.Warning($"Пропущено недопустимое имя модуля для удаления: '{module}'.");
+                continue;
+            }
+
+            arguments.Add($"delete_module={module}");
         }
-        
-        // Сохраняем параметры основной программы в JSON (чтобы передать сложные данные)
-        if (mainAppParameters is { Count: > 0 })
+
+        if (mainAppParameters != null)
         {
-            string parametersJson = System.Text.Json.JsonSerializer.Serialize(mainAppParameters);
-            // Кодируем для передачи в командной строке
-            string encodedParams = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(parametersJson));
-            args.Add($"main_params={encodedParams}");
+            foreach (var (key, value) in mainAppParameters)
+            {
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value)) continue;
+                if (string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)) continue;
+                arguments.Add($"{key}={value}");
+            }
         }
-        
-        return string.Join(" ", args);
+
+        return arguments;
     }
 
     #endregion
 
-    #region Приватные методы для Update
+    #region Ожидание и удаление
 
-    private void WaitForMainProgramExit()
+    private bool WaitForMainProgramExit()
     {
-        _logger.Info($"Ожидание завершения процесса {_mainProcessName}...");
-        
-        int waitSeconds = 0;
-        int maxRetries = WAIT_FOR_EXIT_TIMEOUT_SECONDS * 5; // *5 потому что ждём по 200ms
-        
-        while (waitSeconds < maxRetries)
+        _logger.Info($"Ожидание завершения процесса {MainProcessName}...");
+
+        var deadline = DateTime.UtcNow.AddSeconds(WaitForExitTimeoutSeconds);
+        while (DateTime.UtcNow < deadline)
         {
-            var processes = Process.GetProcessesByName(_mainProcessName);
-            var currentProcess = Process.GetCurrentProcess();
-            var mainProcess = processes.FirstOrDefault(p => p.Id != currentProcess.Id);
-            
-            if (mainProcess == null)
+            var process = FindOtherMainProcess();
+            if (process == null)
             {
-                _logger.Info("Основная программа не запущена");
-                Thread.Sleep(1000); // Дополнительная задержка для освобождения файлов
-                return;
-            }
-            
-            if (mainProcess.HasExited)
-            {
-                _logger.Info("Основная программа завершилась");
+                _logger.Info("Основная программа не запущена.");
                 Thread.Sleep(1000);
-                return;
+                return true;
             }
-            
-            if (waitSeconds % 10 == 0) // Логируем каждые 2 секунды
+
+            try
             {
-                _logger.Info($"Ожидание (PID: {mainProcess.Id})...");
+                if (process.HasExited)
+                {
+                    _logger.Info("Основная программа завершилась.");
+                    Thread.Sleep(1000);
+                    return true;
+                }
             }
-            
-            Thread.Sleep(RETRY_DELAY_MS);
-            waitSeconds++;
+            catch
+            {
+                // Процесс уже завершился/недоступен.
+                return true;
+            }
+            finally
+            {
+                process.Dispose();
+            }
+
+            Thread.Sleep(RetryDelayMs);
         }
-        
-        _logger.Warning($"Таймаут ожидания завершения программы ({WAIT_FOR_EXIT_TIMEOUT_SECONDS} сек)");
+
+        _logger.Error($"Таймаут ожидания завершения основной программы ({WaitForExitTimeoutSeconds} сек).");
+        return false;
     }
 
-    private void DeleteModules(List<string> modulesToDelete)
+    private Process? FindOtherMainProcess()
+    {
+        foreach (var process in Process.GetProcessesByName(MainProcessName))
+        {
+            if (process.Id == Environment.ProcessId)
+            {
+                process.Dispose();
+                continue;
+            }
+
+            try
+            {
+                var fileName = process.MainModule?.FileName;
+                if (fileName != null && PathsEqual(fileName, _mainExePath))
+                {
+                    return process;
+                }
+            }
+            catch
+            {
+                // Не смогли определить путь (права/битый процесс) — считаем его нашей установкой.
+                return process;
+            }
+
+            process.Dispose();
+        }
+
+        return null;
+    }
+
+    private bool DeleteModules(List<string> modulesToDelete)
     {
         foreach (var module in modulesToDelete)
         {
-            _logger.Info($"Удаление модуля: {module}...");
-            
-            string moduleDir = Path.Combine(_modulesDirectory, module);
+            if (!IsSafeName(module))
+            {
+                _logger.Error($"Недопустимое имя модуля для удаления: '{module}'.");
+                return false;
+            }
+
+            var moduleDir = Path.Combine(_modulesDirectory, module);
+            if (!IsPathUnder(_modulesDirectory, moduleDir))
+            {
+                _logger.Error($"Путь модуля выходит за пределы каталога modules: '{moduleDir}'.");
+                return false;
+            }
+
             if (!Directory.Exists(moduleDir))
             {
                 _logger.Warning($"Модуль не найден: {moduleDir}");
                 continue;
             }
-            
-            bool deleted = false;
-            int tryCounts = 0;
-            int maxRetries = MAX_RETRY_ATTEMPTS;
-            
-            do
+
+            _logger.Info($"Удаление модуля: {module}...");
+            if (!TryDeleteDirectory(moduleDir, MaxRetryAttempts))
             {
-                try
-                {
-                    Directory.Delete(moduleDir, true);
-                    deleted = true;
-                    _logger.Info($"Модуль удалён: {module}");
-                }
-                catch (Exception ex)
-                {
-                    tryCounts++;
-                    _logger.Warning($"Ошибка удаления модуля (попытка {tryCounts}): {ex.Message}");
-                    Thread.Sleep(RETRY_DELAY_MS);
-                }
+                _logger.Error($"Не удалось удалить модуль {module} после {MaxRetryAttempts} попыток.");
+                return false;
             }
-            while (!deleted && tryCounts < maxRetries);
-            
-            if (!deleted)
-            {
-                _logger.Error($"Не удалось удалить модуль {module} после {maxRetries} попыток");
-            }
+
+            _logger.Info($"Модуль удалён: {module}");
         }
+
+        return true;
     }
 
-    private void ProcessUpdatesDirectory()
+    #endregion
+
+    #region Обработка updates
+
+    private bool ProcessUpdatesDirectory()
     {
         if (!Directory.Exists(_updatesDirectory))
         {
-            _logger.Info("Папка updates не существует, пропускаем");
-            return;
+            _logger.Info("Папка updates не существует, обновления не требуются.");
+            return true;
         }
-        
+
         var subDirs = Directory.GetDirectories(_updatesDirectory);
-        _logger.Info($"Найдено {subDirs.Length} папок обновлений");
-        
+        _logger.Info($"Найдено {subDirs.Length} папок обновлений.");
+
+        var mainDirs = new List<string>();
+        var moduleDirs = new List<string>();
+
         foreach (var dir in subDirs)
         {
-            string dirName = Path.GetFileName(dir);
-            _logger.Info($"Обработка: {dirName}");
-            
-            if (dirName == _mainProcessName || dirName == Path.GetFileNameWithoutExtension(_mainExePath))
+            var dirName = Path.GetFileName(dir);
+            if (string.Equals(dirName, MainProcessName, StringComparison.OrdinalIgnoreCase))
             {
-                // Обновление основного модуля
-                UpdateMainModule(dir);
+                mainDirs.Add(dir);
             }
             else
             {
-                // Обновление дополнительного модуля
-                UpdateAdditionalModule(dir, dirName);
-            }
-            
-            // Удаляем обработанную папку обновления
-            try
-            {
-                Directory.Delete(dir, true);
-                _logger.Info($"Удалена папка обновления: {dirName}");
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning($"Не удалось удалить папку {dirName}: {ex.Message}");
+                moduleDirs.Add(dir);
             }
         }
+
+        // Сначала модули, затем основной модуль: после замены каталога установки
+        // пути к исходным папкам обновлений уже недействительны.
+        foreach (var dir in moduleDirs)
+        {
+            var moduleName = Path.GetFileName(dir);
+            if (!UpdateAdditionalModule(dir, moduleName)) return false;
+            TryDeleteDirectory(dir);
+        }
+
+        foreach (var dir in mainDirs)
+        {
+            if (!UpdateMainModule(dir)) return false;
+        }
+
+        return true;
     }
 
-    private void UpdateMainModule(string sourceDir)
+    private bool UpdateAdditionalModule(string sourceDir, string moduleName)
     {
-        _logger.Info("Обновление основного модуля...");
-        
-        // Очищаем основную директорию, защищая важные файлы
-        bool cleared;
-        var tryCounts = 0;
-
-        do
+        if (!IsSafeName(moduleName))
         {
-            _logger.Info("Очистка основной директории...");
-            cleared = ClearMainDirectory();
-            if (cleared) continue;
-            _logger.Warning($"Ошибка очистки (попытка {tryCounts + 1})");
-            Thread.Sleep(RETRY_DELAY_MS);
-            tryCounts++;
+            _logger.Error($"Недопустимое имя модуля в updates: '{moduleName}'.");
+            return false;
         }
-        while (!cleared && tryCounts < MAX_RETRY_ATTEMPTS);
-        
-        if (!cleared)
-        {
-            _logger.Warning("Не удалось полностью очистить директорию, продолжаем...");
-        }
-        
-        _logger.Info("Копирование файлов основного модуля...");
-        DirectoryRecursiveCopy(sourceDir, _appDirectory);
-    }
 
-    private void UpdateAdditionalModule(string sourceDir, string moduleName)
-    {
-        _logger.Info($"Обновление модуля: {moduleName}");
-        
-        string destDir = Path.Combine(_modulesDirectory, moduleName);
-        
-        // Удаляем старую версию модуля
-        if (Directory.Exists(destDir))
+        var destination = Path.Combine(_modulesDirectory, moduleName);
+        if (!IsPathUnder(_modulesDirectory, destination))
         {
-            bool deleted = false;
-            int tryCounts = 0;
-            int maxRetries = MAX_RETRY_ATTEMPTS;
-            
-            do
-            {
-                try
-                {
-                    _logger.Info($"Удаление старой версии модуля {moduleName}");
-                    Directory.Delete(destDir, true);
-                    deleted = true;
-                }
-                catch (Exception ex)
-                {
-                    tryCounts++;
-                    _logger.Warning($"Ошибка удаления (попытка {tryCounts}): {ex.Message}");
-                    Thread.Sleep(RETRY_DELAY_MS);
-                }
-            }
-            while (!deleted && tryCounts < maxRetries);
+            _logger.Error($"Путь модуля выходит за пределы modules: '{destination}'.");
+            return false;
         }
-        
-        // Копируем новый модуль
-        _logger.Info($"Копирование модуля {moduleName}");
-        DirectoryRecursiveCopy(sourceDir, destDir);
-    }
 
-    private bool ClearMainDirectory()
-    {
+        var staging = Path.Combine(_stagingRoot, $"module-{moduleName}-{Guid.NewGuid():N}");
         try
         {
-            var items = Directory.GetFileSystemEntries(_appDirectory);
-            
-            foreach (var item in items)
+            _logger.Info($"Подготовка модуля {moduleName}...");
+            CopyDirectory(sourceDir, staging);
+
+            var expectedDll = Path.Combine(staging, moduleName + ".dll");
+            if (!File.Exists(expectedDll))
             {
-                var name = Path.GetFileName(item);
-                
-                if (name == "." || name == "..")
-                    continue;
-                
-                if (_protectedItems.Contains(name))
-                {
-                    _logger.Info($"Защищённый элемент пропущен: {name}");
-                    continue;
-                }
-                
-                if (Directory.Exists(item))
-                {
-                    Directory.Delete(item, true);
-                    _logger.Info($"Удалена папка: {name}");
-                }
-                else
-                {
-                    File.Delete(item);
-                    _logger.Info($"Удалён файл: {name}");
-                }
+                _logger.Error($"В пакете модуля {moduleName} отсутствует {moduleName}.dll.");
+                return false;
             }
+
+            Directory.CreateDirectory(_modulesDirectory);
+            string? backup = null;
+
+            if (Directory.Exists(destination))
+            {
+                backup = Path.Combine(_backupRoot, $"module-{moduleName}-{DateTime.UtcNow:yyyyMMddHHmmss}");
+                Directory.CreateDirectory(_backupRoot);
+                MoveDirectory(destination, backup);
+            }
+
+            try
+            {
+                MoveDirectory(staging, destination);
+                _logger.Info($"Модуль обновлён: {moduleName}");
+                return true;
+            }
+            catch
+            {
+                if (backup != null && Directory.Exists(backup) && !Directory.Exists(destination))
+                {
+                    TryMoveDirectory(backup, destination);
+                }
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка обновления модуля {moduleName}: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            TryDeleteDirectory(staging);
+        }
+    }
+
+    private bool UpdateMainModule(string sourceDir)
+    {
+        var staging = Path.Combine(_stagingRoot, $"install-{Guid.NewGuid():N}");
+        try
+        {
+            _logger.Info("Подготовка основной программы...");
+            CopyDirectory(sourceDir, staging);
+            CopyProtectedItems(_installDirectory, staging);
+            ValidateInstallDirectory(staging);
+
+            var backup = Path.Combine(_backupRoot, $"install-{DateTime.UtcNow:yyyyMMddHHmmss}");
+            Directory.CreateDirectory(_backupRoot);
+            Directory.CreateDirectory(_stagingRoot);
+
+            MoveDirectory(_installDirectory, backup);
+            _lastMainBackup = backup;
+
+            try
+            {
+                MoveDirectory(staging, _installDirectory);
+                _logger.Info($"Основная программа обновлена. Backup: {backup}");
+
+                // Пакет, из которого выполнено обновление, в новой установке больше не нужен.
+                TryDeleteDirectory(Path.Combine(_installDirectory, "updates", Path.GetFileName(sourceDir)));
+                return true;
+            }
+            catch
+            {
+                if (Directory.Exists(_installDirectory))
+                {
+                    TryDeleteDirectory(_installDirectory);
+                }
+
+                if (Directory.Exists(backup))
+                {
+                    TryMoveDirectory(backup, _installDirectory);
+                }
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка обновления основной программы: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            TryDeleteDirectory(staging);
+        }
+    }
+
+    private static void CopyProtectedItems(string sourceInstall, string destinationInstall)
+    {
+        foreach (var dirName in new[] { "modules", "updates", "logs" })
+        {
+            var source = Path.Combine(sourceInstall, dirName);
+            if (Directory.Exists(source))
+            {
+                CopyDirectory(source, Path.Combine(destinationInstall, dirName));
+            }
+        }
+
+        var settings = Path.Combine(sourceInstall, "settings.yaml");
+        if (File.Exists(settings))
+        {
+            File.Copy(settings, Path.Combine(destinationInstall, "settings.yaml"), true);
+        }
+    }
+
+    private static void ValidateInstallDirectory(string directory)
+    {
+        foreach (var required in new[]
+                 {
+                     "OutfitTool.exe",
+                     "OutfitTool.dll",
+                     "OutfitTool.runtimeconfig.json",
+                     "OutfitTool.deps.json"
+                 })
+        {
+            var path = Path.Combine(directory, required);
+            if (!File.Exists(path))
+            {
+                throw new FileNotFoundException(
+                    $"Новая версия не содержит обязательный файл '{required}'.", path);
+            }
+        }
+    }
+
+    private bool RollbackMainModule()
+    {
+        if (_lastMainBackup == null || !Directory.Exists(_lastMainBackup)) return false;
+
+        try
+        {
+            if (Directory.Exists(_installDirectory))
+            {
+                var failed = _installDirectory + "_failed_" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+                TryMoveDirectory(_installDirectory, failed);
+            }
+
+            MoveDirectory(_lastMainBackup, _installDirectory);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.Warning($"Ошибка при очистке директории: {ex.Message}");
+            _logger.Error($"Не удалось откатить основную программу: {ex.Message}");
             return false;
         }
     }
 
-    private void DirectoryRecursiveCopy(string sourceDirName, string destDirName)
-    {
-        var sourceDir = new DirectoryInfo(sourceDirName);
-        if (!sourceDir.Exists)
-        {
-            _logger.Warning($"Исходная папка не найдена: {sourceDirName}");
-            return;
-        }
-        
-        if (!Directory.Exists(destDirName))
-        {
-            Directory.CreateDirectory(destDirName);
-        }
-        
-        // Копируем файлы
-        foreach (var file in sourceDir.GetFiles())
-        {
-            string destPath = Path.Combine(destDirName, file.Name);
-            if (File.Exists(destPath))
-            {
-                // Файл уже существует и не был удалён при очистке
-                _logger.Info($"Файл пропущен (уже существует): {file.Name}");
-                continue;
-            }
-            file.CopyTo(destPath, false);
-            _logger.Info($"Скопирован файл: {file.Name}");
-        }
-        
-        // Копируем подпапки
-        foreach (var dir in sourceDir.GetDirectories())
-        {
-            string destSubPath = Path.Combine(destDirName, dir.Name);
-            DirectoryRecursiveCopy(dir.FullName, destSubPath);
-        }
-    }
+    #endregion
 
-    private void RestartMainProgram(Dictionary<string, string>? mainAppParameters)
+    #region Запуск
+
+    private bool RestartMainProgram(Dictionary<string, string>? mainAppParameters)
     {
         _logger.Info("Запуск обновлённой программы...");
-        
+
         if (!File.Exists(_mainExePath))
         {
             _logger.Error($"Основной EXE не найден: {_mainExePath}");
-            return;
+            return false;
         }
-        
-        // Формируем аргументы командной строки
-        string arguments = "";
-        if (mainAppParameters is { Count: > 0 })
-        {
-            var args = new List<string>();
-            foreach (var param in mainAppParameters)
-            {
-                args.Add($"{param.Key}={param.Value}");
-            }
-            arguments = string.Join(" ", args);
-            _logger.Info($"Параметры запуска: {arguments}");
-        }
-        
+
         var startInfo = new ProcessStartInfo
         {
             FileName = _mainExePath,
-            Arguments = arguments,
-            UseShellExecute = true,
-            WorkingDirectory = _appDirectory
+            WorkingDirectory = _installDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true
         };
-        
-        Process.Start(startInfo);
-        _logger.Info("Основная программа запущена");
+
+        if (mainAppParameters != null)
+        {
+            foreach (var (key, value) in mainAppParameters)
+            {
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value)) continue;
+                if (string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)) continue;
+                startInfo.ArgumentList.Add($"{key}={value}");
+            }
+        }
+
+        var process = Process.Start(startInfo);
+        if (process == null)
+        {
+            _logger.Error("Process.Start вернул null при запуске основной программы.");
+            return false;
+        }
+
+        Thread.Sleep(1500);
+        if (process.HasExited)
+        {
+            _logger.Error($"Обновлённая программа завершилась с кодом {process.ExitCode}.");
+            return false;
+        }
+
+        _logger.Info("Основная программа запущена.");
+        return true;
+    }
+
+    #endregion
+
+    #region Файловые операции
+
+    private static string NormalizeDirectory(string path)
+    {
+        return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static bool PathsEqual(string left, string right)
+    {
+        return string.Equals(
+            NormalizeDirectory(left),
+            NormalizeDirectory(right),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSafeName(string name)
+    {
+        return !string.IsNullOrWhiteSpace(name) && SafeNameRegex.IsMatch(name);
+    }
+
+    private static bool IsPathUnder(string root, string path)
+    {
+        var normalizedRoot = NormalizeDirectory(root) + Path.DirectorySeparatorChar;
+        var normalizedPath = Path.GetFullPath(path);
+        return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void CopyDirectory(
+        string source,
+        string destination,
+        HashSet<string>? excludedAtRoot = null)
+    {
+        Directory.CreateDirectory(destination);
+
+        foreach (var file in Directory.EnumerateFiles(source))
+        {
+            var name = Path.GetFileName(file);
+            if (excludedAtRoot != null && excludedAtRoot.Contains(name)) continue;
+            File.Copy(file, Path.Combine(destination, name), true);
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(source))
+        {
+            var name = Path.GetFileName(directory);
+            if (excludedAtRoot != null && excludedAtRoot.Contains(name)) continue;
+
+            var attributes = File.GetAttributes(directory);
+            if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+
+            CopyDirectory(directory, Path.Combine(destination, name));
+        }
+    }
+
+    private static void MoveDirectory(string source, string destination)
+    {
+        if (Directory.Exists(destination))
+        {
+            throw new IOException($"Каталог назначения уже существует: {destination}");
+        }
+
+        Directory.Move(source, destination);
+    }
+
+    private static bool TryMoveDirectory(string source, string destination)
+    {
+        try
+        {
+            MoveDirectory(source, destination);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryDeleteDirectory(string path, int attempts = 1)
+    {
+        if (!Directory.Exists(path)) return true;
+
+        for (var attempt = 0; attempt < attempts; attempt++)
+        {
+            try
+            {
+                Directory.Delete(path, true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (attempt == attempts - 1)
+                {
+                    _logger.Warning($"Не удалось удалить каталог {path}: {ex.Message}");
+                    return false;
+                }
+
+                Thread.Sleep(RetryDelayMs);
+            }
+        }
+
+        return false;
+    }
+
+    private void CleanupOldDirectories(string root, TimeSpan maxAge, bool keepNewest = false)
+    {
+        if (!Directory.Exists(root)) return;
+
+        try
+        {
+            var directories = Directory.GetDirectories(root)
+                .Select(path => new DirectoryInfo(path))
+                .OrderByDescending(info => info.LastWriteTimeUtc)
+                .ToList();
+
+            for (var i = 0; i < directories.Count; i++)
+            {
+                if (keepNewest && i == 0) continue;
+                if (DateTime.UtcNow - directories[i].LastWriteTimeUtc < maxAge) continue;
+                TryDeleteDirectory(directories[i].FullName);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Очистка {root} не выполнена: {ex.Message}");
+        }
     }
 
     #endregion

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2026 Roman Stolyarov <rshome@mail.ru>
  *
  * This program is free software: you can redistribute it and/or modify
@@ -30,8 +30,32 @@ public class CommandDescriptor
         return Module.AssemblyName + "." + Command.Name;
     }
 
+    /// <summary>
+    /// Сравнивает строку команды с учётом legacy-имени модуля (ModuleInfo.Name)
+    /// и текущего AssemblyName.
+    /// </summary>
+    public bool Matches(string? commandString)
+    {
+        if (string.IsNullOrWhiteSpace(commandString)) return false;
+
+        var parts = GetModuleAndCommandNames(commandString);
+        if (parts.Length != 2) return false;
+
+        var moduleMatches =
+            string.Equals(parts[0], Module.AssemblyName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(parts[0], Module.ModuleInfo.Name, StringComparison.OrdinalIgnoreCase);
+
+        return moduleMatches
+               && string.Equals(parts[1], Command.Name, StringComparison.OrdinalIgnoreCase);
+    }
+
     public static string[] GetModuleAndCommandNames(string name)
     {
-        return name.Split('.');
+        if (string.IsNullOrWhiteSpace(name)) return [];
+
+        var separator = name.IndexOf('.');
+        if (separator <= 0 || separator == name.Length - 1) return [];
+
+        return [name[..separator], name[(separator + 1)..]];
     }
 }
